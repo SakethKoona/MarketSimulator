@@ -1,4 +1,3 @@
 [workspace]
-members = [
-  "simulator"
-]
+resolver = "3"
+members = [ "limit_order_book","lob_feed"]
