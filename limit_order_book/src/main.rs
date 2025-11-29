@@ -1,6 +1,8 @@
 
 mod types;
+mod lob;
 
+use lob::LimitOrderBook;
 
 /*
  * This file would be responsible for instantiating the order book that we created, and also
@@ -10,4 +12,6 @@ mod types;
  * */
 fn main() {
     println!("Hello, world!");
+
+    let _book: LimitOrderBook;
 }
