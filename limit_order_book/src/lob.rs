@@ -1,8 +1,13 @@
 
-
-use std::error::Error;
-
+use std::{collections::VecDeque, error::Error};
 use crate::types::{LimitOrder};
+
+
+pub struct PriceLevel {
+    price: f32,
+    orders: VecDeque<LimitOrder>,
+}
+
 
 pub struct LimitOrderBook {
    pub bids: Vec<LimitOrder>,
@@ -18,4 +23,5 @@ impl LimitOrderBook {
     pub fn cancel_order(order_id: i32) -> Result<(), String> {
         todo!("Implement canceling an order");
     }
+
 }

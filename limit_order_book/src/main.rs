@@ -1,6 +1,8 @@
 
 mod types;
 mod lob;
+mod skiplist;
+
 
 use lob::LimitOrderBook;
 
