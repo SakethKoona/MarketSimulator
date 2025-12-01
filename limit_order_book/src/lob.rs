@@ -1,13 +1,6 @@
 
-use std::{collections::VecDeque, error::Error};
+use std::{cmp::{self, Ordering}, collections::VecDeque, error::Error};
 use crate::types::{LimitOrder};
-
-
-pub struct PriceLevel {
-    price: f32,
-    orders: VecDeque<LimitOrder>,
-}
-
 
 pub struct LimitOrderBook {
    pub bids: Vec<LimitOrder>,
@@ -25,3 +18,4 @@ impl LimitOrderBook {
     }
 
 }
+
