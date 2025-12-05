@@ -11,7 +11,7 @@ struct SkipListNode<T> {
 struct SkipList<T: Ord> {
     pub head: Box<SkipListNode<T>>,
     pub max_height: usize,
-
+    pub probability: f32,
     // Private Variables
     length: usize,
 }
@@ -19,11 +19,12 @@ struct SkipList<T: Ord> {
 impl<T: Ord> SkipList<T> {
     pub const MAX_HEIGHT: usize = 32;
 
-    pub fn new(&self, head: Box<SkipListNode<T>>) -> Self {
+    pub fn new(&self, head: Box<SkipListNode<T>>, probability: f32) -> Self {
         return SkipList::<T> {
             head: head,
             max_height: Self::MAX_HEIGHT,
             length: 0,
+            probability: probability,
         };
     }
 
@@ -51,6 +52,8 @@ impl<T: Ord> SkipList<T> {
         while let Some(ref next_node) = current.next[0] {
             if next_node.value == node {
                 return Some(next_node);
+            } else if next_node.value > node {
+                return None;
             } else {
                 current = next_node;
             }
@@ -63,7 +66,35 @@ impl<T: Ord> SkipList<T> {
         return self.length;
     }
 
-    pub fn insert(&self, node: T) {
+    fn _create_new_node_helper(value: T) -> SkipListNode<T> {
+
+    }
+
+    pub fn insert(&self, target: T) {
+        // First step, we basically go through the list and simulate a search to figure out where
+        // that node would be if it were already inserted in level 0.
+        // We need to keep track of the traversal path however, how are we going to do that?
+        // Basically, we want the method to know exactly where to go when it actually creates that
+        // node and explores
+
+        // For each level, we basically had a target, which represented where to stop at that level
+        //
+
+        let mut current = &*self.head;
+        let mut stopping_points: [&SkipListNode<T>; MAX_HEIGHT] = [&*self.head; MAX_HEIGHT]; // Initialize
+
+        for level in (0..self.max_height).rev() {
+            while let Some(ref next_node) = current.next[level] {
+                if next_node.value >= target {
+                    break; // break here
+                } else {
+                    current = next_node;
+                }
+            }
+
+            stopping_points[level] = current; // record last stopping point after traversing level
+        }
+
         todo!("Implement the insert method for the skiplist");
     }
 
