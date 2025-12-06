@@ -68,20 +68,25 @@ impl<T: Ord + Default> SkipList<T> {
             //         break;
             //     }
             // }
-            while !current.is_null() { // This  is saysiing that while current points to something
-
+            unsafe {
+                while !(*current).next[level].is_null() && (*(*current).next[level]).value < node {
+                    // Keep moving
+                    current = (*current).next[level];
+                }
             }
         }
 
         // The next part, now that we got as close as possible descending the levels on level 0 to
         // the node, we just do a regular linked list traversal to find the target or return None.
-        while let Some(ref next_node) = current.next[0] {
-            if next_node.value == node {
-                return Some(next_node);
-            } else if next_node.value > node {
-                return None;
-            } else {
-                current = next_node;
+        unsafe {
+            while !(*current).next[0].is_null() {
+                if (*(*current).next[0]).value == node {
+                    return Some(&(*(*current).next[0]));
+                } else if (*(*current).next[0]).value > node {
+                    return None;
+                }
+
+                current = (*current).next[0];
             }
         }
 
