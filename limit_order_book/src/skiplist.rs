@@ -1,49 +1,75 @@
 use crate::types::PriceLevel;
+use rand::Rng;
+use std::{ptr, usize::MAX};
 
 const MAX_HEIGHT: usize = 24;
 
 struct SkipListNode<T> {
     value: T,
-    next: [Option<Box<SkipListNode<T>>>; MAX_HEIGHT],
+    // next: [Option<Box<SkipListNode<T>>>; MAX_HEIGHT],
+    next: [*mut SkipListNode<T>; MAX_HEIGHT],
     height: usize,
 }
 
 struct SkipList<T: Ord> {
-    pub head: Box<SkipListNode<T>>,
+    // pub head: Box<SkipListNode<T>>,
+    pub head_ptr: *mut SkipListNode<T>,
     pub max_height: usize,
     pub probability: f32,
     // Private Variables
     length: usize,
 }
 
-impl<T: Ord> SkipList<T> {
+impl<T> SkipListNode<T> {
+    pub fn new(value: T, height: usize) -> Self {
+        return Self {
+            value: value,
+            next: [ptr::null_mut(); MAX_HEIGHT],
+            height: height,
+        };
+    }
+}
+
+impl<T: Ord + Default> SkipList<T> {
     pub const MAX_HEIGHT: usize = 32;
 
-    pub fn new(&self, head: Box<SkipListNode<T>>, probability: f32) -> Self {
-        return SkipList::<T> {
-            head: head,
-            max_height: Self::MAX_HEIGHT,
-            length: 0,
+    pub fn new(probability: f32) -> Self {
+        let head_node = Box::new(SkipListNode {
+            value: T::default(),
+            next: [ptr::null_mut(); MAX_HEIGHT],
+            height: MAX_HEIGHT,
+        });
+
+        // Next, we create the skiplist struct with the raw pointer to the head
+        let head_ptr: *mut SkipListNode<T> = Box::into_raw(head_node);
+
+        Self {
+            head_ptr: head_ptr,
+            max_height: MAX_HEIGHT,
             probability: probability,
-        };
+            length: 0,
+        }
     }
 
     pub fn search(&self, node: T) -> Option<&SkipListNode<T>> {
         // First, we get the head node
-        let mut current = &*self.head;
+        let mut current = self.head_ptr;
 
         // Starts at the head node, at the topmost level, then keeps going down until we are at the
         // breaking point between the target and before, or as close as possible without being
         // greater than it.
         for level in (0..self.max_height).rev() {
-            while let Some(ref next_node) = current.next[level] {
-                if next_node.value == node {
-                    return Some(next_node);
-                } else if next_node.value < node {
-                    current = next_node;
-                } else {
-                    break;
-                }
+            // while let Some(ref next_node) = current.next[level] {
+            //     if next_node.value == node {
+            //         return Some(next_node);
+            //     } else if next_node.value < node {
+            //         current = next_node;
+            //     } else {
+            //         break;
+            //     }
+            // }
+            while !current.is_null() { // This  is saysiing that while current points to something
+
             }
         }
 
@@ -66,11 +92,18 @@ impl<T: Ord> SkipList<T> {
         return self.length;
     }
 
-    fn _create_new_node_helper(value: T) -> SkipListNode<T> {
+    fn _create_random_node(&self, value: T) -> SkipListNode<T> {
+        let mut rng = rand::rng();
 
+        let mut level = 0;
+        while rng.random_bool(self.probability.into()) == true && level <= MAX_HEIGHT {
+            level += 1;
+        }
+
+        return SkipListNode::new(value, level);
     }
 
-    pub fn insert(&self, target: T) {
+    pub fn insert(&mut self, target: T) {
         // First step, we basically go through the list and simulate a search to figure out where
         // that node would be if it were already inserted in level 0.
         // We need to keep track of the traversal path however, how are we going to do that?
@@ -93,6 +126,24 @@ impl<T: Ord> SkipList<T> {
             }
 
             stopping_points[level] = current; // record last stopping point after traversing level
+        }
+
+        let inserted_node = self._create_random_node(target);
+
+        // Now, finally we add the inserted node into the list
+        /*
+         * What would the algorithm look like for the actual insertion process here?
+         * - So first, we would start off at the height of that node and move downwards.
+         * - Then, for each level that we encounter where we
+         *
+         *
+         *
+         * */
+        current = &*self.head;
+        for level in (0..inserted_node.height).rev() {
+            while let Some(ref next_node) = current.next[level] {
+                if current.value == stopping_points[level].value {}
+            }
         }
 
         todo!("Implement the insert method for the skiplist");
