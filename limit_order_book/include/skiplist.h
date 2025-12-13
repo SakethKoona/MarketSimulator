@@ -1,5 +1,5 @@
-#include <ctime>
 #include <cstdlib>
+#include <ctime>
 
 #define MAX_HEIGHT 16
 
@@ -10,7 +10,7 @@ template <typename Key, typename Value> struct SkipListNode {
 
   // Creating the constructor
   SkipListNode(Key k, Value v) : key(k), value(v) {
-    for (int i = 0; i <= MAX_HEIGHT; i++) {
+    for (int i = 0; i < MAX_HEIGHT; i++) {
       forward[MAX_HEIGHT] = nullptr;
     }
   }
@@ -18,6 +18,11 @@ template <typename Key, typename Value> struct SkipListNode {
 
 template <typename Key, typename Value> class SkipList {
 public:
+  SkipList(float p) : p(p) {
+    this->head_ptr = new SkipListNode<Key, Value>(Key{}, Value{});
+    this->length = 0;
+  }
+
   SkipListNode<Key, Value> *head_ptr;
   float p;
 
@@ -38,6 +43,8 @@ public:
     current = current->forward[0];
     if (current && current->key == key) {
       return current;
+    } else {
+      return nullptr;
     }
 
     return nullptr;
@@ -74,6 +81,8 @@ public:
     this->length++;
     return true;
   }
+
+  int len() { return this->length; }
 
   bool delete_node(const Key &key);
 
