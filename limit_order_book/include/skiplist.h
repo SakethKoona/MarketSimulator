@@ -42,8 +42,10 @@ public:
     // Next, it's just a regular linked list traversal to the end
     current = current->forward[0];
     if (current && current->key == key) {
+      delete current;
       return current;
     }
+
     return nullptr;
   }
 
@@ -75,13 +77,27 @@ public:
       stopping_points[i]->forward[i] = newNode;
     }
 
+    delete current;
+    delete newNode;
+
     this->length++;
     return true;
   }
 
   int len() { return this->length; }
 
-  bool delete_node(const Key &key);
+  bool delete_node(const Key &key) {
+    auto *current = head_ptr;
+    SkipListNode<Key, Value> *update[MAX_HEIGHT] = {nullptr};
+    // First part is same as insert
+    for (int level = MAX_HEIGHT - 1; level >= 0; level--) {
+      while (current->forward[level] && current->forward[level]->key < key) {
+        current = current->forward[level];
+      }
+      update[level] = current;
+    }
+
+  }
 
 private:
   int length;
@@ -95,6 +111,7 @@ private:
 
     } while (random_variable > this->p && rand_level < MAX_HEIGHT);
 
+    delete &random_variable;
     return rand_level - 1;
   }
 };
