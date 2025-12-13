@@ -43,10 +43,7 @@ public:
     current = current->forward[0];
     if (current && current->key == key) {
       return current;
-    } else {
-      return nullptr;
     }
-
     return nullptr;
   }
 
