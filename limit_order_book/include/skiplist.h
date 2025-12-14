@@ -1,3 +1,5 @@
+#include <climits>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
 
@@ -7,11 +9,12 @@ template <typename Key, typename Value> struct SkipListNode {
   Key key;
   Value value;
   SkipListNode *forward[MAX_HEIGHT];
+  uint16_t height;
 
   // Creating the constructor
-  SkipListNode(Key k, Value v) : key(k), value(v) {
+  SkipListNode(Key k, Value v, uint16_t h) : key(k), value(v), height(h) {
     for (int i = 0; i < MAX_HEIGHT; i++) {
-      forward[MAX_HEIGHT] = nullptr;
+      forward[i] = nullptr;
     }
   }
 };
@@ -19,7 +22,7 @@ template <typename Key, typename Value> struct SkipListNode {
 template <typename Key, typename Value> class SkipList {
 public:
   SkipList(float p) : p(p) {
-    this->head_ptr = new SkipListNode<Key, Value>(Key{}, Value{});
+    this->head_ptr = new SkipListNode<Key, Value>(Key{}, Value{}, MAX_HEIGHT);
     this->length = 0;
   }
 
@@ -42,7 +45,6 @@ public:
     // Next, it's just a regular linked list traversal to the end
     current = current->forward[0];
     if (current && current->key == key) {
-      delete current;
       return current;
     }
 
@@ -54,6 +56,12 @@ public:
 
     SkipListNode<Key, Value> *stopping_points[MAX_HEIGHT] = {nullptr};
 
+    int lvl = getRandomLevel();
+
+    // Actually create the newNode
+    auto *newNode =
+        new SkipListNode<Key, Value>(key, value, static_cast<uint16_t>(lvl));
+
     // First, we do a similar traversal like in search, keeping track of
     // where we stop at each level
     for (int level = MAX_HEIGHT - 1; level >= 0; level--) {
@@ -64,21 +72,12 @@ public:
 
       stopping_points[level] = current;
     }
-
-    int lvl = getRandomLevel();
-
-    // Actually create the newNode
-    auto *newNode = new SkipListNode<Key, Value>(key, value);
-
     // After we get the random level, we now run through the loop again
     // and insert it where it should be
     for (int i = 0; i <= lvl; i++) {
       newNode->forward[i] = stopping_points[i]->forward[i];
       stopping_points[i]->forward[i] = newNode;
     }
-
-    delete current;
-    delete newNode;
 
     this->length++;
     return true;
@@ -97,6 +96,21 @@ public:
       update[level] = current;
     }
 
+    // Next, we just remove references at each level
+    auto *target = update[0]->forward[0];
+    if (target && target->key == key) {
+      for (int i = 0; i < MAX_HEIGHT; i++) {
+        if (update[i]->forward[i] == target) {
+          update[i]->forward[i] = target->forward[i];
+        }
+      }
+    } else {
+      return false;
+    }
+
+    delete target;
+    length--;
+    return true;
   }
 
 private:
@@ -111,7 +125,6 @@ private:
 
     } while (random_variable > this->p && rand_level < MAX_HEIGHT);
 
-    delete &random_variable;
     return rand_level - 1;
   }
 };
