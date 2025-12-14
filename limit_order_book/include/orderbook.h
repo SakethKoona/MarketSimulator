@@ -1,8 +1,8 @@
 
 #include "skiplist.h"
+#include <chrono>
 #include <cstdint>
 #include <deque>
-#include <chrono>
 
 using Timestamp = uint64_t;
 using Price = uint64_t;
@@ -32,27 +32,21 @@ struct Order {
   Side side;
 
   Order(OrderId orderId, Price price, Quantity quantity, OrderType orderType,
-         Timestamp timestamp, TypeInForce typeInForce, Side side)
-      : orderId(orderId), price(price), quantity(quantity),
-        orderType(orderType), typeInForce(typeInForce),
-        side(side) {
-          // Initialize timemstamp
-          timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::high_resolution_clock::now().time_since_epoch()
-          )
-            .count();
-        }
+        Timestamp timestamp, TypeInForce typeInForce, Side side);
 };
 
 struct PriceLevel {
   Price price;
   std::deque<Order> orders;
+
+  bool addOrder(Order order);
+  bool removeOrder(OrderId orderId);
 };
 
 class OrderBook {
 public:
-  SkipList<Price, PriceLevel> getBids() { return bids_; }
-  SkipList<Price, PriceLevel> getAsks() { return asks_; }
+  SkipList<Price, PriceLevel> getBids();
+  SkipList<Price, PriceLevel> getAsks();
 
 private:
   SkipList<Price, PriceLevel> bids_;
