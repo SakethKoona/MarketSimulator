@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <iostream>
 
 #define MAX_HEIGHT 16
 
@@ -111,6 +112,18 @@ public:
     delete target;
     length--;
     return true;
+  }
+
+  void printList() {
+    // Regular traversal from level 0
+    auto *current = head_ptr;
+    while (current) {
+      std::cout << "(" << current->key << ", " << current->value << ")"
+                << " -> ";
+      current = current->forward[0];
+    }
+
+    std::cout << "END" <<  std::endl;
   }
 
 private:
