@@ -17,9 +17,28 @@ Order::Order(OrderId orderId, Price price, Quantity quantity,
 }
 
 bool PriceLevel::addOrder(Order order) {
-  //TODO: Do any necessary preprocessing here
+  // TODO: Do any necessary preprocessing here
   orders.push_front(order);
 
   return true;
+}
+
+bool OrderBook::addOrder(Order order) {
+  if (order.side == Side::Buy) {
+    // We add it to the bids_
+    // First, we want to check whether that price level exists
+    auto *priceLevel = bids_.search(order.price);
+    if (priceLevel == nullptr) {
+      // The price level node doesn't exist, we have a unique price, so we want to add a new node
+      PriceLevel newPriceLevel;
+      newPriceLevel.price = order.price;
+      newPriceLevel.addOrder(order);
+
+      bids_.insert(order.price, newPriceLevel);
+    } else {
+      // Otherwise, we simply add the new order to that already existing price level
+      priceLevel->value.addOrder(order);
+    } 
+  }
 }
 

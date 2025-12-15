@@ -47,6 +47,7 @@ class OrderBook {
 public:
   SkipList<Price, PriceLevel> getBids();
   SkipList<Price, PriceLevel> getAsks();
+  bool addOrder(Order order);
 
 private:
   SkipList<Price, PriceLevel> bids_;
