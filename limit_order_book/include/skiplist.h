@@ -52,16 +52,10 @@ public:
     return nullptr;
   }
 
-  bool insert(const Key &key, const Value &value) {
+  SkipListNode<Key, Value> *insertOrGet(const Key &key) {
     auto *current = head_ptr;
 
     SkipListNode<Key, Value> *stopping_points[MAX_HEIGHT] = {nullptr};
-
-    int lvl = getRandomLevel();
-
-    // Actually create the newNode
-    auto *newNode =
-        new SkipListNode<Key, Value>(key, value, static_cast<uint16_t>(lvl));
 
     // First, we do a similar traversal like in search, keeping track of
     // where we stop at each level
@@ -71,8 +65,21 @@ public:
         current = current->forward[level];
       }
 
+      if (current->key == key) {
+        return current;
+      }
+
       stopping_points[level] = current;
     }
+
+    int lvl = getRandomLevel();
+
+    Value value{};
+
+    // Actually create the newNode
+    auto *newNode =
+        new SkipListNode<Key, Value>(key, value, static_cast<uint16_t>(lvl));
+
     // After we get the random level, we now run through the loop again
     // and insert it where it should be
     for (int i = 0; i <= lvl; i++) {
@@ -81,7 +88,7 @@ public:
     }
 
     this->length++;
-    return true;
+    return &newNode;
   }
 
   int len() { return this->length; }
@@ -123,7 +130,7 @@ public:
       current = current->forward[0];
     }
 
-    std::cout << "END" <<  std::endl;
+    std::cout << "END" << std::endl;
   }
 
 private:

@@ -24,21 +24,18 @@ bool PriceLevel::addOrder(Order order) {
 }
 
 bool OrderBook::addOrder(Order order) {
-  if (order.side == Side::Buy) {
-    // We add it to the bids_
-    // First, we want to check whether that price level exists
-    auto *priceLevel = bids_.search(order.price);
-    if (priceLevel == nullptr) {
-      // The price level node doesn't exist, we have a unique price, so we want to add a new node
-      PriceLevel newPriceLevel;
-      newPriceLevel.price = order.price;
-      newPriceLevel.addOrder(order);
+  auto &book = (order.side == Side::Buy) ? bids_ : asks_;
 
-      bids_.insert(order.price, newPriceLevel);
-    } else {
-      // Otherwise, we simply add the new order to that already existing price level
-      priceLevel->value.addOrder(order);
-    } 
-  }
+  // First, we either insert or get the existing price level within the book
+  // Instead of inserting the order here, we would basicaly insert an empty
+  // price level or should we insert the pre-created price level with the order
+  // already in it.
+  // 1. when we call insertOrGet, and the its get, we pass in an unnecessary
+  // value, when we just need the key, so it creates an unnecessary node in
+  // memory without inserting it anywhere,
+  // 2. if we need insert, then we have to create a price level
+  // Okay, I fixed it by making the insert method insertOrGet, so it either returns the existing one
+  // or creates a new pointer and returns that, and then we can just add to that directly
+  auto *level = book.insertOrGet(order.price);
+  level->value.addOrder(order);
 }
-
