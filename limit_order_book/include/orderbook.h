@@ -40,7 +40,7 @@ struct PriceLevel {
   Price price;
   std::deque<Order> orders;
 
-  bool addOrder(Order order);
+  Order* addOrder(Order order);
   bool removeOrder(OrderId orderId);
 };
 
@@ -49,7 +49,7 @@ public:
   SkipList<Price, PriceLevel> getBids();
   SkipList<Price, PriceLevel> getAsks();
   bool addOrder(Order order);
-  bool cancelOrder(Order order);
+  bool cancelOrder(OrderId id);
 
   PriceLevel* bestBid();
   PriceLevel* bestAsk();

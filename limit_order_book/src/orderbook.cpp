@@ -17,15 +17,15 @@ Order::Order(OrderId orderId, Price price, Quantity quantity,
           .count();
 }
 
-bool PriceLevel::addOrder(Order order) {
+Order* PriceLevel::addOrder(Order order) {
   // TODO: Do any necessary preprocessing here
   // if quantity < 0, then we return false for success
   if (order.quantity <= 0) {
-    return false;
+    return nullptr;
   }
 
   orders.push_back(order);
-  return true;
+  return &order;
 }
 
 bool OrderBook::addOrder(Order order) {
@@ -45,6 +45,13 @@ bool OrderBook::addOrder(Order order) {
   level->value.addOrder(order);
   return true;
 }
+
+bool OrderBook::cancelOrder(OrderId id) {
+  
+
+  return true;
+}
+
 
 PriceLevel *OrderBook::bestAsk() {
   return &asks_.head_ptr->forward[0]->value;
