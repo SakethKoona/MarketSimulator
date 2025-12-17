@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <unordered_map>
 
 using Timestamp = uint64_t;
 using Price = uint64_t;
@@ -48,8 +49,13 @@ public:
   SkipList<Price, PriceLevel> getBids();
   SkipList<Price, PriceLevel> getAsks();
   bool addOrder(Order order);
+  bool cancelOrder(Order order);
+
+  PriceLevel* bestBid();
+  PriceLevel* bestAsk();
 
 private:
   SkipList<Price, PriceLevel> bids_;
   SkipList<Price, PriceLevel> asks_;
+  std::unordered_map<OrderId, Order*> orderLookup_;
 };

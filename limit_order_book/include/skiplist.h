@@ -87,11 +87,17 @@ public:
       stopping_points[i]->forward[i] = newNode;
     }
 
+    if (newNode->forward[0] ==
+        nullptr) { // This means that we are at the end, (the max value)
+      tail = newNode;
+    }
+
     this->length++;
-    return &newNode;
+    return newNode;
   }
 
   int len() { return this->length; }
+  SkipListNode<Key, Value>* getMax() { return tail; }
 
   bool delete_node(const Key &key) {
     auto *current = head_ptr;
@@ -107,12 +113,18 @@ public:
     // Next, we just remove references at each level
     auto *target = update[0]->forward[0];
     if (target && target->key == key) {
+      // Before we rewire, let's reassign the tail if needed
+      if (target->forward[0] == nullptr) {
+        tail = update[0]; // The new tail becomes the next biggest one because
+                          // the current biggest is getting deleted
+      }
+
       for (int i = 0; i < MAX_HEIGHT; i++) {
         if (update[i]->forward[i] == target) {
           update[i]->forward[i] = target->forward[i];
         }
       }
-    } else {
+    } else { // We don't return anything, cause the node to delet doesn't exist
       return false;
     }
 
@@ -135,6 +147,7 @@ public:
 
 private:
   int length;
+  SkipListNode<Key, Value> *tail;
   int getRandomLevel() {
     int rand_level = 0;
     double random_variable;
