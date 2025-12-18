@@ -51,6 +51,9 @@ public:
 
     return nullptr;
   }
+  
+
+  //TODO: Also could possibly implement an insert method that takes in a key and a value and is a traidional insert method
 
   SkipListNode<Key, Value> *insertOrGet(const Key &key) {
     auto *current = head_ptr;
