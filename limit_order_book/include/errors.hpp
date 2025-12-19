@@ -1,5 +1,3 @@
-
-
 enum class OrderResult {
     Success,
     InvalidQty,

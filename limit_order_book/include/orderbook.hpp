@@ -36,17 +36,39 @@ struct Order {
         TypeInForce typeInForce, Side side);
 };
 
+
+namespace COLORS {
+  constexpr const char* reset   = "\033[0m";
+  constexpr const char* dim     = "\033[2m";
+  constexpr const char* cyan    = "\033[36m";
+  constexpr const char* green   = "\033[32m";
+  constexpr const char* red     = "\033[31m";
+  constexpr const char* yellow  = "\033[33m";
+  constexpr const char* magenta = "\033[35m";
+}
+
+constexpr int PRICE_W = 8;
+constexpr int INDENT = 5;
+constexpr int ORDER_W = 20;
+
+void PrintOrderBookHeader(std::ostream& os);
+
+std::ostream& operator<<(std::ostream& os, const Order& order);
+
 using OrderIterator = std::list<Order>::iterator;
 
 struct PriceLevel {
   Price price;
   std::list<Order> orders;
-  int size_;
+  int size_ = 0;
 
   OrderIterator addOrder(const Order &order);
   OrderResult removeOrder(OrderIterator orderIt);
   int GetSize();
+  void SetPrice(Price price);
 };
+
+std::ostream& operator<<(std::ostream& os, const PriceLevel& pl);
 
 using Book = SkipList<Price, PriceLevel>;
 
@@ -66,7 +88,7 @@ public:
   Book getAsks();
   OrderResult addOrder(Order order);
   OrderResult cancelOrder(OrderId id);
-  void DisplayBook();
+  void Display();
 
   PriceLevel *bestBid();
   PriceLevel *bestAsk();

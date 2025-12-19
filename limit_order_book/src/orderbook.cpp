@@ -1,6 +1,26 @@
 #include "../include/orderbook.hpp"
 #include <chrono>
 #include <unordered_map>
+#include <iomanip>
+
+
+
+void PrintOrderBookHeader(std::ostream& os) {
+    // Column titles
+    os << std::setw(PRICE_W + ORDER_W - PRICE_W) << "SELL"    // left side
+       << std::string(PRICE_W + ORDER_W - PRICE_W, ' ') << "|"
+       << std::setw(PRICE_W + ORDER_W - PRICE_W) << "BUY"    // right side
+       << '\n';
+
+    // Separator line
+    os << std::string(PRICE_W + ORDER_W, '-')   // SELL side
+       << std::string(PRICE_W + ORDER_W - PRICE_W, '-')               // separator
+       << std::string(PRICE_W + ORDER_W, '-')   // BUY side
+       << '\n';
+}
+
+
+
 
 /*
 ORDER METHODS
@@ -17,6 +37,30 @@ Order::Order(OrderId orderId, Price price, Quantity quantity,
           std::chrono::high_resolution_clock::now().time_since_epoch())
           .count();
 }
+
+// Order Display method
+std::ostream& operator<<(std::ostream& os, const Order& o) {
+    os << COLORS::dim << "[" << o.timestamp << "]" << COLORS::reset << " "
+       << COLORS::cyan << "O" << o.orderId << COLORS::reset << " | ";
+
+    if (o.side == Side::Buy) {
+        os << COLORS::green << "BUY ";
+    } else {
+        os << COLORS::red << "SELL ";
+    }
+
+    os << COLORS::reset
+       << o.quantity << " @ ";
+
+    if (o.orderType == OrderType::LIMIT) {
+        os << COLORS::yellow << "$" << o.price;
+    } else {
+        os << COLORS::magenta << "MARKET";
+    }
+
+    return os << COLORS::reset;
+}
+
 
 /*
 PRICE LEVEL METHODS
@@ -35,6 +79,21 @@ OrderResult PriceLevel::removeOrder(OrderIterator orderIt) {
 }
 
 int PriceLevel::GetSize() { return size_; }
+
+void PriceLevel::SetPrice(Price price) {
+  this->price = price;
+}
+
+std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
+
+  os << COLORS::yellow << pl.price << COLORS::reset << std::endl;
+  
+  for(const auto& order: pl.orders) {
+      os << std::setw(INDENT) << order << std::endl;
+  }
+
+  return os;
+}
 
 /*
 ORDER BOOK METHODS
@@ -55,10 +114,9 @@ OrderResult OrderBook::addOrder(Order order) { // O(log P) -> O(1)
     return OrderResult::DuplicateOrder;
   }
 
-  // After, we validate all the guards, we first get the price level or insert a
-  // new one if it doesnt exist
   auto &book = (order.side == Side::Buy) ? bids_ : asks_;
   auto *priceLevel = book.insertOrGet(order.price);      // O(log N)
+  priceLevel->value.SetPrice(order.price); // O(1)
   auto insertResult = priceLevel->value.addOrder(order); // O(1)
 
   OrderInfo entryInfo = OrderInfo{};
@@ -71,10 +129,6 @@ OrderResult OrderBook::addOrder(Order order) { // O(log P) -> O(1)
 }
 
 OrderResult OrderBook::cancelOrder(OrderId id) {
-  // For cancelling, we need to make this O(1)
-  // We get the order from the map, and then we can remove it from the price
-  // level there
-
   auto it = orderLookup_.find(id); // Hashmap iterator
   if (it == orderLookup_
                 .end()) { // The order doesn't exist, so we return OrderNotFound
@@ -102,4 +156,30 @@ PriceLevel *OrderBook::bestAsk() {
   return &asks_.head_ptr->forward[0]->value;
 } // O(1)
 
-PriceLevel *OrderBook::bestBid() { return &bids_.getMax()->value; } // O(1)
+PriceLevel *OrderBook::bestBid() {
+  return &bids_.getMax()->value;
+} // O(1)
+
+void OrderBook::Display() {
+  /**
+   * For this function we want to Display
+   * both sides of the orderbook with all the orders that exist for each side
+   * Or, do we?
+   * What's the best way to display here?
+   * Do we do something like an L2 Feed, this would be pretty simple
+   * we'd just add a total quantity section to the price level and we can just
+   * display that
+   */
+
+  PrintOrderBookHeader(std::cout);
+
+  // Print out one example price level from each side for now
+
+  auto bidsCurrent = bids_.head_ptr->forward[0];
+  while (bidsCurrent)
+  {
+    std::cout << bidsCurrent->value << std::endl;
+    bidsCurrent = bidsCurrent->forward[0];
+  }
+  
+}

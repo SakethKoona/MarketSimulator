@@ -7,8 +7,19 @@ int main(int argc, char *argv[]) {
   OrderBook ob{};
 
   Order exampleOrder =
-      Order(1, 2399, 5, OrderType::LIMIT, TypeInForce::GTC, Side::Buy);
-  auto result = ob.addOrder(exampleOrder);
+      Order(1, 40, 5, OrderType::LIMIT, TypeInForce::GTC, Side::Buy);
+  Order anotherOrder =
+      Order(2, 40, 10, OrderType::LIMIT, TypeInForce::GTC, Side::Buy);
+
+
+  Order orderThree = Order(3, 41, 15, OrderType::LIMIT, TypeInForce::GTC, Side::Buy);
+
+
+
+  ob.addOrder(exampleOrder);
+  ob.addOrder(orderThree);
+  
+  auto result = ob.addOrder(anotherOrder);
   switch (result) {
   case OrderResult::Success:
     std::cout << "YES, IT FUCKING WORKS" << std::endl;
@@ -17,13 +28,7 @@ int main(int argc, char *argv[]) {
     std::cout << "WE FAILED :(" << std::endl;
   }
 
-  switch (ob.cancelOrder(2)) {
-  case OrderResult::Success:
-    std::cout << "WORKED AGAIN HAHA" << std::endl;
-    break;
-  default:
-    std::cout << "WE DID SOMETHING WRONG" << std::endl;
-  }
+  ob.Display();
 
   return 0;
 }

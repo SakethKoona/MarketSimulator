@@ -1,4 +1,3 @@
-#include <climits>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -67,16 +66,15 @@ public:
              current->forward[level]->key < key) {
         current = current->forward[level];
       }
-
-      if (current->key == key) {
-        return current;
-      }
-
       stopping_points[level] = current;
     }
 
-    int lvl = getRandomLevel();
+    current = current->forward[0];
+    if (current != nullptr && current->key == key) {
+      return current; // If we found it, return it
+    }
 
+    int lvl = getRandomLevel();
     Value value{};
 
     // Actually create the newNode
@@ -90,8 +88,7 @@ public:
       stopping_points[i]->forward[i] = newNode;
     }
 
-    if (newNode->forward[0] ==
-        nullptr) { // This means that we are at the end, (the max value)
+    if (newNode->forward[0] == nullptr) { // This means that we are at the end, (the max value)
       tail = newNode;
     }
 
