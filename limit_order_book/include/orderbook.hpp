@@ -38,14 +38,20 @@ struct Order {
 
 
 namespace COLORS {
-  constexpr const char* reset   = "\033[0m";
-  constexpr const char* dim     = "\033[2m";
-  constexpr const char* cyan    = "\033[36m";
-  constexpr const char* green   = "\033[32m";
-  constexpr const char* red     = "\033[31m";
-  constexpr const char* yellow  = "\033[33m";
-  constexpr const char* magenta = "\033[35m";
+    constexpr const char* reset     = "\033[0m";
+    constexpr const char* bold      = "\033[1m";
+    constexpr const char* dim       = "\033[2m";
+    constexpr const char* underline= "\033[4m";
+    constexpr const char* inverse  = "\033[7m";
+
+    constexpr const char* red       = "\033[31m";
+    constexpr const char* green     = "\033[32m";
+    constexpr const char* yellow    = "\033[33m";
+    constexpr const char* blue      = "\033[34m";
+    constexpr const char* magenta   = "\033[35m";
+    constexpr const char* cyan      = "\033[36m";
 }
+
 
 constexpr int PRICE_W = 8;
 constexpr int INDENT = 5;

@@ -124,7 +124,7 @@ public:
           update[i]->forward[i] = target->forward[i];
         }
       }
-    } else { // We don't return anything, cause the node to delet doesn't exist
+    } else { // We don't return anything, cause the node to delete doesn't exist
       return false;
     }
 
