@@ -6,3 +6,10 @@ enum class OrderResult {
     PriceOutOfRange,
     TypeNotSupported,
 };
+
+enum class ModifyResult {
+    Success,
+    Replaced,
+    OrderNotFound,
+    Rejected,
+};

@@ -1,67 +1,59 @@
 #include "../include/orderbook.hpp"
-#include "tabulate/tabulate.hpp"
-#include "tabulate/table.hpp"
 #include <chrono>
-#include <unordered_map>
+#include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <ctime>
+#include <unordered_map>
+#include <optional>
+
+#ifndef DEBUG
+  #define DEBUG
+#endif
 
 /* ============================================================
    TIMESTAMP HELPERS
    ============================================================ */
 
-inline void print_timestamp(std::ostream& os, std::int64_t ns_since_epoch) {
-    using namespace std::chrono;
+inline void print_timestamp(std::ostream &os, std::int64_t ns_since_epoch) {
+  using namespace std::chrono;
 
-    nanoseconds ns{ns_since_epoch};
-    seconds s = duration_cast<seconds>(ns);
-    nanoseconds rem = ns - s;
+  nanoseconds ns{ns_since_epoch};
+  seconds s = duration_cast<seconds>(ns);
+  nanoseconds rem = ns - s;
 
-    std::time_t tt = s.count();
-    std::tm tm = *std::localtime(&tt);
+  std::time_t tt = s.count();
+  std::tm tm = *std::localtime(&tt);
 
-    os << std::put_time(&tm, "%H:%M:%S")
-       << '.'
-       << std::setw(9) << std::setfill('0') << rem.count()
-       << std::setfill(' ');
+  os << std::put_time(&tm, "%H:%M:%S") << '.' << std::setw(9)
+     << std::setfill('0') << rem.count() << std::setfill(' ');
 }
 
-inline void print_timestamp_5dp(std::ostream& os, std::int64_t ns_since_epoch) {
-    using namespace std::chrono;
+inline void print_timestamp_5dp(std::ostream &os, std::int64_t ns_since_epoch) {
+  using namespace std::chrono;
 
-    nanoseconds ns{ns_since_epoch};
-    seconds s = duration_cast<seconds>(ns);
+  nanoseconds ns{ns_since_epoch};
+  seconds s = duration_cast<seconds>(ns);
 
-    auto frac = duration_cast<microseconds>(ns - s).count() / 10;
+  auto frac = duration_cast<microseconds>(ns - s).count() / 10;
 
-    std::time_t tt = s.count();
-    std::tm tm = *std::localtime(&tt);
+  std::time_t tt = s.count();
+  std::tm tm = *std::localtime(&tt);
 
-    os << std::put_time(&tm, "%H:%M:%S")
-       << '.'
-       << std::setw(5) << std::setfill('0') << frac
-       << std::setfill(' ');
+  os << std::put_time(&tm, "%H:%M:%S") << '.' << std::setw(5)
+     << std::setfill('0') << frac << std::setfill(' ');
 }
 
 /* ============================================================
    HEADER
    ============================================================ */
 
-void PrintOrderBookHeader(std::ostream& os) {
-    constexpr int COL_W = 40;
+void PrintOrderBookHeader(std::ostream &os) {
+  constexpr int COL_W = 40;
 
-    os << COLORS::bold
-       << std::setw(COL_W) << "SELL"
-       << " | "
-       << std::setw(COL_W) << "BUY"
-       << COLORS::reset
-       << '\n';
+  os << COLORS::bold << std::setw(COL_W) << "SELL"
+     << " | " << std::setw(COL_W) << "BUY" << COLORS::reset << '\n';
 
-    os << std::string(COL_W, '-')
-       << "-+-"
-       << std::string(COL_W, '-')
-       << '\n';
+  os << std::string(COL_W, '-') << "-+-" << std::string(COL_W, '-') << '\n';
 }
 
 /* ============================================================
@@ -71,59 +63,66 @@ void PrintOrderBookHeader(std::ostream& os) {
 Order::Order(OrderId orderId, Price price, Quantity quantity,
              OrderType orderType, TypeInForce typeInForce, Side side)
     : orderId(orderId), price(price), quantity(quantity), orderType(orderType),
-      typeInForce(typeInForce), side(side) {
+      typeInForce(typeInForce), side(side) { // TODO: Add functionality here that automatically creates an order id
 
-    this->timestamp =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::high_resolution_clock::now().time_since_epoch())
-            .count();
+  this->timestamp =
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+          std::chrono::high_resolution_clock::now().time_since_epoch())
+          .count();
 }
 
-std::ostream& operator<<(std::ostream& os, const Order& o) {
-    os << COLORS::dim << "[";
-    print_timestamp_5dp(os, o.timestamp);
-    os << "]" << COLORS::reset << " "
-       << COLORS::cyan << "O" << o.orderId << COLORS::reset << " | ";
+std::ostream &operator<<(std::ostream &os, const Order &o) {
+  os << COLORS::dim << "[";
+  print_timestamp_5dp(os, o.timestamp);
+  os << "]" << COLORS::reset << " " << COLORS::cyan << "O" << o.orderId
+     << COLORS::reset << " | ";
 
-    if (o.side == Side::Buy) {
-        os << COLORS::green << "BUY ";
-    } else {
-        os << COLORS::red << "SELL ";
-    }
+  if (o.side == Side::Buy) {
+    os << COLORS::green << "BUY ";
+  } else {
+    os << COLORS::red << "SELL ";
+  }
 
-    os << COLORS::reset
-       << o.quantity << " @ ";
+  os << COLORS::reset << o.quantity << " @ ";
 
-    if (o.orderType == OrderType::LIMIT) {
-        os << COLORS::yellow << o.price;
-    } else {
-        os << COLORS::magenta << "MARKET";
-    }
+  if (o.orderType == OrderType::LIMIT) {
+    os << COLORS::yellow << o.price;
+  } else {
+    os << COLORS::magenta << "MARKET";
+  }
 
-    return os << COLORS::reset;
+  return os << COLORS::reset;
 }
 
 /* ============================================================
    PRICE LEVEL
    ============================================================ */
 
-OrderIterator PriceLevel::addOrder(const Order &order) {
-    orders.push_back(order);
-    size_++;
-    auto it = orders.end();
-    return --it;
+OrderIterator PriceLevel::AddOrder(const Order &order) {
+  orders.push_back(order);
+  size_++;
+  auto it = orders.end();
+  return --it;
 }
 
-OrderResult PriceLevel::removeOrder(OrderIterator orderIt) {
-    orders.erase(orderIt);
-    size_--;
-    return OrderResult::Success;
+OrderResult PriceLevel::RemoveOrder(OrderIterator orderIt) {
+  orders.erase(orderIt);
+  size_--;
+  return OrderResult::Success;
 }
 
 int PriceLevel::GetSize() { return size_; }
 
-void PriceLevel::SetPrice(Price price) {
-    this->price = price;
+void PriceLevel::SetPrice(Price price) { this->price = price; }
+
+std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
+  os << COLORS::magenta << pl.price << COLORS::reset << std::endl;
+  
+  for (const auto& order : pl.orders) {
+    os << "  " << order << std::endl;
+  }
+  
+  return os;
 }
 
 /* ============================================================
@@ -135,83 +134,171 @@ OrderBook::OrderBook() : bids_(0.5f), asks_(0.5f) {}
 Book OrderBook::getBids() { return bids_; }
 Book OrderBook::getAsks() { return asks_; }
 
-OrderResult OrderBook::addOrder(Order order) { // unchanged
-    if (order.quantity <= 0)
-        return OrderResult::InvalidQty;
+OrderResult OrderBook::addOrder(const Order& order) {
+  if (order.quantity <= 0)
+    return OrderResult::InvalidQty;
 
-    auto it = orderLookup_.find(order.orderId);
-    if (it != orderLookup_.end())
-        return OrderResult::DuplicateOrder;
+  auto it = orderLookup_.find(order.orderId);
+  if (it != orderLookup_.end())
+    return OrderResult::DuplicateOrder;
 
-    auto &book = (order.side == Side::Buy) ? bids_ : asks_;
-    auto *priceLevel = book.insertOrGet(order.price);
-    priceLevel->value.SetPrice(order.price);
-    auto insertResult = priceLevel->value.addOrder(order);
+  auto &book = (order.side == Side::Buy) ? bids_ : asks_;
+  auto *priceLevel = book.insertOrGet(order.price);
+  priceLevel->value.SetPrice(order.price);
+  auto insertResult = priceLevel->value.AddOrder(order);
 
-    OrderInfo entryInfo = OrderInfo{};
-    entryInfo.priceLevel = &priceLevel->value;
-    entryInfo.order = insertResult;
+  OrderInfo entryInfo = OrderInfo{};
+  entryInfo.priceLevel = &priceLevel->value;
+  entryInfo.order = insertResult;
 
-    orderLookup_.insert({order.orderId, entryInfo});
+  orderLookup_.insert({order.orderId, entryInfo});
 
-    return OrderResult::Success;
+  return OrderResult::Success;
 }
 
-OrderResult OrderBook::cancelOrder(OrderId id) { // unchanged
-    auto it = orderLookup_.find(id);
-    if (it == orderLookup_.end())
-        return OrderResult::OrderNotFound;
+OrderResult OrderBook::cancelOrder(OrderId id) {
+  auto it = orderLookup_.find(id);
+  if (it == orderLookup_.end())
+    return OrderResult::OrderNotFound;
 
-    PriceLevel* priceLevel = it->second.priceLevel;
-    priceLevel->removeOrder(it->second.order);
+  PriceLevel *priceLevel = it->second.priceLevel;
+  priceLevel->RemoveOrder(it->second.order);
 
-    if (priceLevel->GetSize() <= 0) {
-        auto &book = it->second.order->side == Side::Buy ? bids_ : asks_;
-        book.delete_node(priceLevel->price);
+  if (priceLevel->GetSize() <= 0) {
+    auto &book = it->second.order->side == Side::Buy ? bids_ : asks_;
+    book.delete_node(priceLevel->price);
+  }
+
+  orderLookup_.erase(it);
+  return OrderResult::Success;
+}
+
+ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice) { 
+  // First, we find the order within the orderlookup
+  auto it = orderLookup_.find(id);
+  if (it == orderLookup_.end()) {
+    return ModifyResult::OrderNotFound;
+  }
+
+  // Get the pointer to the actual order
+  OrderInfo entryInfo = it->second;
+  OrderIterator order = entryInfo.order;
+
+
+  // If price is changed or quantity is higher, then we replace
+  if (newPrice || newQty > order->quantity) {
+
+    Price updated_price = newPrice.value_or(order->price);
+    Order updated_order = Order(id, updated_price, newQty, order->orderType, order->typeInForce, order->side);
+
+    // Remove the current Order
+    cancelOrder(id);
+
+    auto res = addOrder(updated_order);
+
+    switch (res)
+    {
+    case OrderResult::Success:
+      return ModifyResult::Replaced;
+      break;
+    
+    default:
+      return ModifyResult::Rejected;
+      break;
     }
+  }
 
-    orderLookup_.erase(it);
-    return OrderResult::Success;
+  // If the quantity is lower, then we just adjust and return
+  if (newQty < order->quantity) {
+    order->quantity = newQty;
+    return ModifyResult::Success;
+  }
+
+  return ModifyResult::Rejected;
 }
 
-PriceLevel *OrderBook::bestAsk() {
-    return &asks_.head_ptr->forward[0]->value;
-}
+PriceLevel *OrderBook::bestAsk() { return &asks_.head_ptr->forward[0]->value; }
 
-PriceLevel *OrderBook::bestBid() {
-    return &bids_.head_ptr->forward[0]->value;
-}
+PriceLevel *OrderBook::bestBid() { return &bids_.head_ptr->forward[0]->value; }
 
 /* ============================================================
    DISPLAY (L3, FORWARD ONLY)
    ============================================================ */
 
-void OrderBook::Display() {
-    using namespace tabulate;
-
-    Table table;
-
-    table.add_row({"SELL ORDERS", "BUY ORDERS"});
-    table.row(0).format()
-        .font_style({FontStyle::bold})
-        .font_color(Color::cyan);
-
-    auto* bids_it = bids_.head_ptr->forward[0];
-    auto* asks_it = asks_.head_ptr->forward[0];
-
-
-    while (bids_it && asks_it) {
-        std::cout << "BID LEVEL: " << std::endl;
-        std::cout << bids_it->key << bids_it->value.GetSize() << std::endl;
-
-        std::cout << "ASK LEVEL: " << std::endl;
-        std::cout << asks_it->key << asks_it->value.GetSize() << std::endl;
-        
-
-        bids_it = bids_it->forward[0];
-        asks_it = asks_it->forward[0];
+bool isDarkMode() {
+  const char* colorterm = std::getenv("COLORFG");
+  if (colorterm && std::string(colorterm) == "light") {
+    return false;
+  }
+  
+  // Check if running in common dark mode terminals
+  const char* term = std::getenv("TERM_PROGRAM");
+  if (term) {
+    std::string termStr(term);
+    if (termStr == "iTerm.app" || termStr == "Apple_Terminal") {
+      // Most macOS terminals default to dark mode
+      return true;
     }
-
-    std::cout << table << std::endl;
+  }
+  
+  // Default to dark mode
+  return true;
 }
 
+void OrderBook::Display() {
+  bool darkMode = isDarkMode();
+  
+  // Choose colors based on mode
+  std::string askHeaderColor = darkMode ? COLORS::red : COLORS::red;
+  std::string bidHeaderColor = darkMode ? COLORS::green : COLORS::green;
+  std::string priceColor = darkMode ? COLORS::yellow : COLORS::magenta;
+  std::string boxColor = darkMode ? COLORS::bold : COLORS::dim;
+  
+  // Display ASKS
+  std::cout << "\n" << boxColor << askHeaderColor
+            << "╔═══════════════════════════════════════╗\n"
+            << "║            SELL SIDE (ASKS)           ║\n"
+            << "╚═══════════════════════════════════════╝" 
+            << COLORS::reset << "\n\n";
+
+  auto* askNode = asks_.head_ptr->forward[0];
+  while (askNode) {
+    PriceLevel& level = askNode->value;
+    
+    std::cout << priceColor << COLORS::bold 
+              << "Price: $" << level.price 
+              << " (" << level.GetSize() << " orders)" 
+              << COLORS::reset << "\n";
+    
+    for (const auto& order : level.orders) {
+      std::cout << "  " << order << "\n";
+    }
+    std::cout << "\n";
+    
+    askNode = askNode->forward[0];
+  }
+
+  // Display BIDS
+  std::cout << boxColor << bidHeaderColor
+            << "╔═══════════════════════════════════════╗\n"
+            << "║            BUY SIDE (BIDS)            ║\n"
+            << "╚═══════════════════════════════════════╝" 
+            << COLORS::reset << "\n\n";
+
+  auto* bidNode = bids_.head_ptr->forward[0];
+  while (bidNode) {
+    PriceLevel& level = bidNode->value;
+    
+    std::cout << priceColor << COLORS::bold 
+              << "Price: $" << level.price 
+              << " (" << level.GetSize() << " orders)" 
+              << COLORS::reset << "\n";
+    
+    for (const auto& order : level.orders) {
+      std::cout << "  " << order << "\n";
+    }
+    std::cout << "\n";
+    
+    bidNode = bidNode->forward[0];
+  }
+}

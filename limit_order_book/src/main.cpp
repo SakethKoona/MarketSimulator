@@ -22,9 +22,26 @@ int main(int argc, char *argv[]) {
   ob.addOrder(sellOrder);
   ob.addOrder(anotherOrder);
 
+  ob.Display();
+
+  auto res = ob.ModifyOrder(exampleOrder.orderId, 20);
+  switch (res)
+  {
+  case ModifyResult::Replaced:
+    std::cout << "Replaced" << std::endl;
+    break;
   
+  default:
+    std::cout << "HUH" << std::endl;
+    break;
+  }
 
   ob.Display();
+
+
+
+
+
 
   return 0;
 }

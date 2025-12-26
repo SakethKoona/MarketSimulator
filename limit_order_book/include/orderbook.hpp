@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <list>
 #include <unordered_map>
+#include <optional>
 
 using Timestamp = uint64_t;
 using Price = uint64_t;
@@ -68,8 +69,8 @@ struct PriceLevel {
   std::list<Order> orders;
   int size_ = 0;
 
-  OrderIterator addOrder(const Order &order);
-  OrderResult removeOrder(OrderIterator orderIt);
+  OrderIterator AddOrder(const Order &order);
+  OrderResult RemoveOrder(OrderIterator orderIt);
   int GetSize();
   void SetPrice(Price price);
 };
@@ -92,8 +93,9 @@ public:
   OrderBook();
   Book getBids();
   Book getAsks();
-  OrderResult addOrder(Order order);
+  OrderResult addOrder(const Order& order);
   OrderResult cancelOrder(OrderId id);
+  ModifyResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
   void Display();
 
   PriceLevel *bestBid();
