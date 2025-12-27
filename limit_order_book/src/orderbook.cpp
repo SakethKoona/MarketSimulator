@@ -129,10 +129,10 @@ std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
    ORDER BOOK
    ============================================================ */
 
-OrderBook::OrderBook() : bids_(0.5f), asks_(0.5f) {}
+OrderBook::OrderBook(std::string symbol) : bids_(0.5f), asks_(0.5f), symbol(symbol)  {}
 
-Book OrderBook::getBids() { return bids_; }
-Book OrderBook::getAsks() { return asks_; }
+const Book& OrderBook::bids() const { return bids_; }
+const Book& OrderBook::asks() const { return asks_; }
 
 OrderResult OrderBook::addOrder(const Order& order) {
   if (order.quantity <= 0)
@@ -173,7 +173,7 @@ OrderResult OrderBook::cancelOrder(OrderId id) {
   return OrderResult::Success;
 }
 
-ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice) { 
+ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) { 
   // First, we find the order within the orderlookup
   auto it = orderLookup_.find(id);
   if (it == orderLookup_.end()) {
@@ -184,42 +184,27 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty, std::optional<P
   OrderInfo entryInfo = it->second;
   OrderIterator order = entryInfo.order;
 
+  order->quantity = newQty;
 
-  // If price is changed or quantity is higher, then we replace
-  if (newPrice || newQty > order->quantity) {
-
-    Price updated_price = newPrice.value_or(order->price);
-    Order updated_order = Order(id, updated_price, newQty, order->orderType, order->typeInForce, order->side);
-
-    // Remove the current Order
+  if (order->quantity <= 0) {
+    // Remove the order
     cancelOrder(id);
-
-    auto res = addOrder(updated_order);
-
-    switch (res)
-    {
-    case OrderResult::Success:
-      return ModifyResult::Replaced;
-      break;
-    
-    default:
-      return ModifyResult::Rejected;
-      break;
-    }
   }
 
-  // If the quantity is lower, then we just adjust and return
-  if (newQty < order->quantity) {
-    order->quantity = newQty;
-    return ModifyResult::Success;
-  }
-
-  return ModifyResult::Rejected;
+  return ModifyResult::Success;
 }
 
-PriceLevel *OrderBook::bestAsk() { return &asks_.head_ptr->forward[0]->value; }
+const PriceLevel *OrderBook::bestAsk() const { 
+  auto* node = asks_.head_ptr->forward[0];
+  if (!node) return nullptr;
+  return &node->value; 
+}
 
-PriceLevel *OrderBook::bestBid() { return &bids_.head_ptr->forward[0]->value; }
+const PriceLevel *OrderBook::bestBid() const { 
+  auto* node = bids_.head_ptr->forward[0]; 
+  if (!node) return nullptr;
+  return &node->value;
+}
 
 /* ============================================================
    DISPLAY (L3, FORWARD ONLY)

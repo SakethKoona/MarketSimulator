@@ -90,16 +90,18 @@ class OrderBook {
   std::unordered_map<OrderId, OrderInfo> orderLookup_;
 
 public:
+  std::string symbol;
   OrderBook();
-  Book getBids();
-  Book getAsks();
+  OrderBook(std::string symbol);
+  const Book& bids() const;
+  const Book& asks() const;
   OrderResult addOrder(const Order& order);
   OrderResult cancelOrder(OrderId id);
-  ModifyResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
+  ModifyResult ModifyOrder(OrderId id, Quantity newQty);
   void Display();
 
-  PriceLevel *bestBid();
-  PriceLevel *bestAsk();
+  const PriceLevel *bestBid() const;
+  const PriceLevel *bestAsk() const;
 
 private:
 };
