@@ -4,7 +4,6 @@
 #include <iomanip>
 #include <sstream>
 #include <unordered_map>
-#include <optional>
 
 #ifndef DEBUG
   #define DEBUG
@@ -130,6 +129,7 @@ std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
    ============================================================ */
 
 OrderBook::OrderBook(std::string symbol) : bids_(0.5f), asks_(0.5f), symbol(symbol)  {}
+OrderBook::OrderBook() : bids_(0.5f), asks_(0.5f), symbol("") {}
 
 const Book& OrderBook::bids() const { return bids_; }
 const Book& OrderBook::asks() const { return asks_; }
