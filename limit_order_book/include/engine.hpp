@@ -7,6 +7,7 @@ using Symbol = std::string;
 enum class EngineResult {
     Success,
     SymbolNotFound,
+    OrderNotFound
 };
 
 
@@ -30,6 +31,7 @@ struct Trade {
     Fill resting;
 };
 
+
 struct MatchResult {
     std::vector<Trade> trades;
 };
@@ -41,7 +43,7 @@ public:
 
     // API's
     EngineResult SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
-    OrderResult CancelOrder(OrderId id);
+    EngineResult CancelOrder(OrderId id);
     ModifyResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
 
 
@@ -50,6 +52,7 @@ private:
     static std::atomic<TradeId> nextTradeId_;
 
     std::unordered_map<Symbol, OrderBook> books_;
+    std::unordered_map<OrderId, OrderBook*> orders_;
 
     MatchResult FillOrder(Order& order, OrderBook& book);
     static OrderId nextOrderId();

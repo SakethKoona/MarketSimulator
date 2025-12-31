@@ -19,6 +19,8 @@ MatchingEngine::MatchingEngine() {
     json data = json::parse(file);
 
     // Go through all the symbols and create an orderbook for each one
+    // Optional TODO: If we specify any orders already in the orderbook through the JSON config
+    // We can load in the orderbooks with those orders specifically
     json valid_symbols = data["symbols"];
     for (auto& [key, value] : valid_symbols.items()) {
         books_.emplace(key, OrderBook{});
@@ -37,11 +39,11 @@ EngineResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity qu
 
     // Create and package the order
     Order order = Order(
-        MatchingEngine::nextOrderId(), 
-        price, 
-        quantity, 
-        type, 
-        tif, 
+        MatchingEngine::nextOrderId(),
+        price,
+        quantity,
+        type,
+        tif,
         side
     );
 
@@ -64,7 +66,7 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
     1. If the incoming is a MARKET incoming, we never want to add it to the book,
     so we keep filling at the best price level until we either fill completely
     or the orderbook is empty
-    
+
     2. If the incoming is a LIMIT incoming, we want to fill at that price OR BETTER.
     */
     MatchResult res{};
@@ -79,7 +81,21 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
         Quantity adjustment = std::min(incoming.quantity, resting.quantity);
         Price exec_price = resting.price;
 
+        // Early exit condition for limit orders
         if (incoming.orderType == OrderType::LIMIT && !IsPriceMoreAggressive(incoming.price, resting.price, resting.side)) break;
+
+        // Actual trade happenning in the order book
+        Timestamp currentTime = std::chrono::duration_cast<std::chrono::nanoseconds>
+            (std::chrono::high_resolution_clock::now().time_since_epoch())
+            .count();
+
+        Fill resting_fill {
+            .orderId = resting.orderId,
+            .price = exec_price,
+            .qty = adjustment,
+            .side = resting.side,
+            .time = currentTime
+        };
 
         incoming.quantity -= adjustment;
         book.ModifyOrder(resting.orderId, resting.quantity - adjustment);
@@ -90,15 +106,7 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
             .price = exec_price,
             .qty = adjustment,
             .side = incoming.side,
-            .time = incoming.timestamp
-        };
-
-        Fill resting_fill {
-            .orderId = resting.orderId,
-            .price = exec_price,
-            .qty = adjustment,
-            .side = resting.side,
-            .time = resting.timestamp
+            .time = currentTime
         };
 
 
@@ -110,7 +118,59 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
             .aggressor = incoming_fill,
             .resting = resting_fill
         };
-        
+
         res.trades.push_back(trade);
     }
+
+    switch (incoming.typeInForce)
+    {
+    case TypeInForce::GTC: // If we're good till cancel, then we check if we have any quantity, and we just add it to the price level
+        if (incoming.quantity > 0) {
+            book.addOrder(incoming);
+            orders_.emplace(incoming.orderId, &book);
+        }
+        break;
+    case TypeInForce::IOC: // Immediate or Cancel - Throw away the rest
+        // Do nothing
+        break;
+    case TypeInForce::FOK: // How do we deal wit this? we either fill completely or throw this away completely
+        break;
+    default:
+        break;
+    }
+
+    return res;
+}
+
+EngineResult MatchingEngine::CancelOrder(OrderId id) {
+    // First, we search the order lookup in the engine to 1. get the engine, and also to check if the order was even processed
+    auto it = orders_.find(id);
+    if (it == orders_.end()) {
+        return EngineResult::OrderNotFound;
+    }
+
+    // Otherwise, let's get the pointer to the book
+    OrderBook& book = *it->second;
+
+
+    // Then, we can just call cancel order
+    auto result = book.CancelOrder(id);
+    if (result == OrderResult::Success) {
+        return EngineResult::Success;
+    } else {
+        return EngineResult::OrderNotFound;
+    }
+}
+
+EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice) {
+    auto it = orders_.find(id);
+    if (it == orders_.end()) {
+        return EngineResult::OrderNotFound;
+    }
+
+    // First, get the orderbook
+    OrderBook& book = *it->second;
+    const OrderInfo* resting = book.FindOrder(id);
+    
+
 }

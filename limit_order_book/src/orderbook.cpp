@@ -1,9 +1,6 @@
 #include "../include/orderbook.hpp"
-#include <chrono>
-#include <ctime>
 #include <iomanip>
 #include <sstream>
-#include <unordered_map>
 
 #ifndef DEBUG
   #define DEBUG
@@ -116,11 +113,11 @@ void PriceLevel::SetPrice(Price price) { this->price = price; }
 
 std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
   os << COLORS::magenta << pl.price << COLORS::reset << std::endl;
-  
+
   for (const auto& order : pl.orders) {
     os << "  " << order << std::endl;
   }
-  
+
   return os;
 }
 
@@ -156,24 +153,29 @@ OrderResult OrderBook::addOrder(const Order& order) {
   return OrderResult::Success;
 }
 
-OrderResult OrderBook::cancelOrder(OrderId id) {
+OrderResult OrderBook::CancelOrder(OrderId id) {
   auto it = orderLookup_.find(id);
   if (it == orderLookup_.end())
     return OrderResult::OrderNotFound;
 
+  // Delete FROM the price level
   PriceLevel *priceLevel = it->second.priceLevel;
   priceLevel->RemoveOrder(it->second.order);
 
+
+  // Delete the price level if needed
   if (priceLevel->GetSize() <= 0) {
     auto &book = it->second.order->side == Side::Buy ? bids_ : asks_;
     book.delete_node(priceLevel->price);
   }
 
+
+  // If all went well, delete from the orderLookup_
   orderLookup_.erase(it);
   return OrderResult::Success;
 }
 
-ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) { 
+ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   // First, we find the order within the orderlookup
   auto it = orderLookup_.find(id);
   if (it == orderLookup_.end()) {
@@ -188,20 +190,20 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
 
   if (order->quantity <= 0) {
     // Remove the order
-    cancelOrder(id);
+    CancelOrder(id);
   }
 
   return ModifyResult::Success;
 }
 
-const PriceLevel *OrderBook::bestAsk() const { 
+const PriceLevel *OrderBook::bestAsk() const {
   auto* node = asks_.head_ptr->forward[0];
   if (!node) return nullptr;
-  return &node->value; 
+  return &node->value;
 }
 
-const PriceLevel *OrderBook::bestBid() const { 
-  auto* node = bids_.head_ptr->forward[0]; 
+const PriceLevel *OrderBook::bestBid() const {
+  auto* node = bids_.head_ptr->forward[0];
   if (!node) return nullptr;
   return &node->value;
 }
@@ -215,7 +217,7 @@ bool isDarkMode() {
   if (colorterm && std::string(colorterm) == "light") {
     return false;
   }
-  
+
   // Check if running in common dark mode terminals
   const char* term = std::getenv("TERM_PROGRAM");
   if (term) {
@@ -225,41 +227,48 @@ bool isDarkMode() {
       return true;
     }
   }
-  
+
   // Default to dark mode
   return true;
 }
 
 void OrderBook::Display() {
   bool darkMode = isDarkMode();
-  
+
   // Choose colors based on mode
   std::string askHeaderColor = darkMode ? COLORS::red : COLORS::red;
   std::string bidHeaderColor = darkMode ? COLORS::green : COLORS::green;
   std::string priceColor = darkMode ? COLORS::yellow : COLORS::magenta;
   std::string boxColor = darkMode ? COLORS::bold : COLORS::dim;
-  
+
+  // Display symbol header
+  std::cout << "\n" << COLORS::bold << COLORS::cyan
+            << "════════════════════════════════════════\n"
+            << "         ORDER BOOK: " << symbol << "\n"
+            << "════════════════════════════════════════"
+            << COLORS::reset << "\n";
+
   // Display ASKS
   std::cout << "\n" << boxColor << askHeaderColor
             << "╔═══════════════════════════════════════╗\n"
             << "║            SELL SIDE (ASKS)           ║\n"
-            << "╚═══════════════════════════════════════╝" 
+            << "╚═══════════════════════════════════════╝"
             << COLORS::reset << "\n\n";
 
   auto* askNode = asks_.head_ptr->forward[0];
   while (askNode) {
     PriceLevel& level = askNode->value;
-    
-    std::cout << priceColor << COLORS::bold 
-              << "Price: $" << level.price 
-              << " (" << level.GetSize() << " orders)" 
+
+    std::cout << priceColor << COLORS::bold
+              << "Price: $" << level.price
+              << " (" << level.GetSize() << " orders)"
               << COLORS::reset << "\n";
-    
+
     for (const auto& order : level.orders) {
       std::cout << "  " << order << "\n";
     }
     std::cout << "\n";
-    
+
     askNode = askNode->forward[0];
   }
 
@@ -267,23 +276,28 @@ void OrderBook::Display() {
   std::cout << boxColor << bidHeaderColor
             << "╔═══════════════════════════════════════╗\n"
             << "║            BUY SIDE (BIDS)            ║\n"
-            << "╚═══════════════════════════════════════╝" 
+            << "╚═══════════════════════════════════════╝"
             << COLORS::reset << "\n\n";
 
   auto* bidNode = bids_.head_ptr->forward[0];
   while (bidNode) {
     PriceLevel& level = bidNode->value;
-    
-    std::cout << priceColor << COLORS::bold 
-              << "Price: $" << level.price 
-              << " (" << level.GetSize() << " orders)" 
+
+    std::cout << priceColor << COLORS::bold
+              << "Price: $" << level.price
+              << " (" << level.GetSize() << " orders)"
               << COLORS::reset << "\n";
-    
+
     for (const auto& order : level.orders) {
       std::cout << "  " << order << "\n";
     }
     std::cout << "\n";
-    
+
     bidNode = bidNode->forward[0];
   }
+}
+
+const OrderInfo* OrderBook::FindOrder(OrderId id) {
+  auto it = orderLookup_.find(id);
+  return (it == orderLookup_.end()) ?  nullptr : &it->second;
 }

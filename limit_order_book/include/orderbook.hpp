@@ -3,6 +3,8 @@
 #include "skiplist.hpp"
 #include <cstdint>
 #include <list>
+#include <chrono>
+#include <ctime>
 #include <unordered_map>
 #include <optional>
 
@@ -96,12 +98,15 @@ public:
   const Book& bids() const;
   const Book& asks() const;
   OrderResult addOrder(const Order& order);
-  OrderResult cancelOrder(OrderId id);
+  OrderResult CancelOrder(OrderId id);
   ModifyResult ModifyOrder(OrderId id, Quantity newQty);
   void Display();
 
   const PriceLevel *bestBid() const;
   const PriceLevel *bestAsk() const;
 
+  const OrderInfo* FindOrder(OrderId id);
+
 private:
 };
+
