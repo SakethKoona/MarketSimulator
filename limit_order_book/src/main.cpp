@@ -17,7 +17,6 @@ int main(int argc, char *argv[]) {
       Order(4, 45, 20, OrderType::LIMIT, TypeInForce::GTC, Side::Sell); // Sell @ 45
 
 
-
   ob.addOrder(exampleOrder);
   ob.addOrder(orderThree);
   ob.addOrder(sellOrder);

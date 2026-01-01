@@ -71,6 +71,21 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
     */
     MatchResult res{};
 
+    // THIS IMPLEMENTAION FOR FOK IS WRONG, FIX BUGS
+    Quantity incomingQty = incoming.quantity;
+    bool canFill = true;
+    if (incoming.typeInForce == TypeInForce::FOK) { // We want to scan through all the price levels to see if we can fill
+        while (incomingQty > 0) {
+            const PriceLevel* price_level = (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
+            if (!price_level || price_level->TotalQuantity() > incomingQty) {
+                canFill = false;
+                break;
+            }
+
+            incomingQty -= price_level->TotalQuantity();
+        }
+    }
+
 
     while (incoming.quantity > 0) {
         const PriceLevel* price_level = (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
@@ -171,6 +186,27 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty, std::optio
     // First, get the orderbook
     OrderBook& book = *it->second;
     const OrderInfo* resting = book.FindOrder(id);
-    
 
+    if (resting == nullptr) return EngineResult::OrderNotFound;
+
+    // Then, there are two main cases
+    // If only the quantity changed to something lower, then we can just call the orderbook's modify function
+    if (newPrice || newQty > resting->order->quantity) {
+        // We cancel and create
+        Order newOrder (
+            resting->order->orderId,
+            newPrice.value_or(resting->order->price),
+            newQty,
+            resting->order->orderType,
+            resting->order->typeInForce,
+            resting->order->side
+        );
+
+        book.CancelOrder(resting->order->orderId);
+        book.addOrder(newOrder);
+    } else if (newQty < resting->order->quantity) {
+        book.ModifyOrder(resting->order->orderId, newQty);
+    }
+
+    return EngineResult::Success;
 }

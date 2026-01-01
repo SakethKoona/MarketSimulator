@@ -7,7 +7,8 @@ using Symbol = std::string;
 enum class EngineResult {
     Success,
     SymbolNotFound,
-    OrderNotFound
+    OrderNotFound,
+    Failed
 };
 
 
@@ -44,7 +45,7 @@ public:
     // API's
     EngineResult SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
     EngineResult CancelOrder(OrderId id);
-    ModifyResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
+    EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
 
 
 private:

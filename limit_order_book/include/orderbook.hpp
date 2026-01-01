@@ -70,9 +70,12 @@ struct PriceLevel {
   Price price;
   std::list<Order> orders;
   int size_ = 0;
+  int totalQuantity;
 
   OrderIterator AddOrder(const Order &order);
   OrderResult RemoveOrder(OrderIterator orderIt);
+  ModifyResult ModifyOrder(OrderIterator& orderIt, Quantity newQty);
+  Quantity TotalQuantity() const;
   int GetSize();
   void SetPrice(Price price);
 };

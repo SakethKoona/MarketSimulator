@@ -97,17 +97,32 @@ std::ostream &operator<<(std::ostream &os, const Order &o) {
 OrderIterator PriceLevel::AddOrder(const Order &order) {
   orders.push_back(order);
   size_++;
+  totalQuantity += order.quantity;
   auto it = orders.end();
   return --it;
 }
 
 OrderResult PriceLevel::RemoveOrder(OrderIterator orderIt) {
+  totalQuantity -= orderIt->quantity;
   orders.erase(orderIt);
   size_--;
   return OrderResult::Success;
 }
 
+ModifyResult PriceLevel::ModifyOrder(OrderIterator& orderIt, Quantity newQty) {
+  if (newQty > orderIt->quantity) return ModifyResult::Rejected;
+  if (newQty == 0) {
+    RemoveOrder(orderIt);
+    return ModifyResult::Success;
+  }
+  totalQuantity -= (orderIt->quantity - newQty);
+  orderIt->quantity = newQty;
+  return ModifyResult::Success;
+}
+
 int PriceLevel::GetSize() { return size_; }
+
+Quantity PriceLevel::TotalQuantity() const { return totalQuantity; }
 
 void PriceLevel::SetPrice(Price price) { this->price = price; }
 
@@ -160,12 +175,13 @@ OrderResult OrderBook::CancelOrder(OrderId id) {
 
   // Delete FROM the price level
   PriceLevel *priceLevel = it->second.priceLevel;
+  Side side = it->second.order->side;
   priceLevel->RemoveOrder(it->second.order);
 
 
   // Delete the price level if needed
   if (priceLevel->GetSize() <= 0) {
-    auto &book = it->second.order->side == Side::Buy ? bids_ : asks_;
+    auto &book = side == Side::Buy ? bids_ : asks_;
     book.delete_node(priceLevel->price);
   }
 
@@ -183,17 +199,19 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   }
 
   // Get the pointer to the actual order
-  OrderInfo entryInfo = it->second;
+  OrderInfo& entryInfo = it->second;
+  PriceLevel* pl = entryInfo.priceLevel;
   OrderIterator order = entryInfo.order;
 
-  order->quantity = newQty;
-
-  if (order->quantity <= 0) {
-    // Remove the order
-    CancelOrder(id);
+  ModifyResult res =  pl->ModifyOrder(order, newQty); // We remove the order here and update the size if the new quantity is 0
+  
+  if (newQty == 0 || (res == ModifyResult::Success && pl->GetSize() == 0)) {
+    orderLookup_.erase(id);
+    auto& book = order->side == Side::Buy ? bids_ : asks_;
+    if (pl->GetSize() == 0) book.delete_node(pl->price);
   }
 
-  return ModifyResult::Success;
+  return res;
 }
 
 const PriceLevel *OrderBook::bestAsk() const {
