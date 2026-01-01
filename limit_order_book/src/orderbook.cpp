@@ -147,6 +147,8 @@ const Book& OrderBook::bids() const { return bids_; }
 const Book& OrderBook::asks() const { return asks_; }
 
 OrderResult OrderBook::addOrder(const Order& order) {
+  // Small issue here to fix later TODO: we set price even if we get an existing price level
+  // And apparently that might break invariants in the future, so something to watch out for
   if (order.quantity <= 0)
     return OrderResult::InvalidQty;
 
@@ -154,9 +156,11 @@ OrderResult OrderBook::addOrder(const Order& order) {
   if (it != orderLookup_.end())
     return OrderResult::DuplicateOrder;
 
+  // Checks have passed do the actual inserting
   auto &book = (order.side == Side::Buy) ? bids_ : asks_;
-  auto *priceLevel = book.insertOrGet(order.price);
-  priceLevel->value.SetPrice(order.price);
+  Price priceKey = (order.side == Side::Buy) ? -order.price : order.price;
+  auto *priceLevel = book.insertOrGet(priceKey); // Create a new Price level if needed or get the old one
+  priceLevel->value.SetPrice(order.price); // When we set the price in the price level, we keep it positive, since we only get by Key
   auto insertResult = priceLevel->value.AddOrder(order);
 
   OrderInfo entryInfo = OrderInfo{};
@@ -180,11 +184,12 @@ OrderResult OrderBook::CancelOrder(OrderId id) {
 
 
   // Delete the price level if needed
+  // TODO: Add error handling here if node deletion fails
   if (priceLevel->GetSize() <= 0) {
     auto &book = side == Side::Buy ? bids_ : asks_;
-    book.delete_node(priceLevel->price);
+    Price priceKey = (side == Side::Buy) ? -priceLevel->price : priceLevel->price;
+    book.delete_node(priceKey);
   }
-
 
   // If all went well, delete from the orderLookup_
   orderLookup_.erase(it);

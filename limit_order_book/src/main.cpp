@@ -24,16 +24,13 @@ int main(int argc, char *argv[]) {
 
   ob.Display();
 
-  auto res = ob.ModifyOrder(exampleOrder.orderId, 20);
-  switch (res)
-  {
-  case ModifyResult::Replaced:
-    std::cout << "Replaced" << std::endl;
-    break;
+  // Okay, so for Cancel Order, the price level isn't being deleted if it's empty
+  ob.CancelOrder(orderThree.orderId);
+  auto res = ob.CancelOrder(orderThree.orderId);
+  ob.CancelOrder(sellOrder.orderId);
 
-  default:
-    std::cout << "HUH" << std::endl;
-    break;
+  if (res == OrderResult::Success) {
+    std::cout << "okay, something went wrong" << std::endl;
   }
 
   ob.Display();

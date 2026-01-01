@@ -72,19 +72,18 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
     MatchResult res{};
 
     // THIS IMPLEMENTAION FOR FOK IS WRONG, FIX BUGS
-    Quantity incomingQty = incoming.quantity;
-    bool canFill = true;
-    if (incoming.typeInForce == TypeInForce::FOK) { // We want to scan through all the price levels to see if we can fill
-        while (incomingQty > 0) {
-            const PriceLevel* price_level = (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
-            if (!price_level || price_level->TotalQuantity() > incomingQty) {
-                canFill = false;
-                break;
-            }
+    Quantity remaining = incoming.quantity;
+    bool canFillAll = true;
 
-            incomingQty -= price_level->TotalQuantity();
-        }
+    /*
+    We want to essentially go through all the price levels
+    and simulate what it would be like to match without actually making
+    any changes
+    */
+    while (remaining > 0) {
+        
     }
+
 
 
     while (incoming.quantity > 0) {

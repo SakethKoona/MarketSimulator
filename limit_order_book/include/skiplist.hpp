@@ -75,11 +75,10 @@ public:
     }
 
     int lvl = getRandomLevel();
-    Value value{};
+    Value value{}; // Value is initially empty
 
     // Actually create the newNode
-    auto *newNode =
-        new SkipListNode<Key, Value>(key, value, static_cast<uint16_t>(lvl));
+    auto *newNode = new SkipListNode<Key, Value>(key, value, static_cast<uint16_t>(lvl));
 
     // After we get the random level, we now run through the loop again
     // and insert it where it should be
