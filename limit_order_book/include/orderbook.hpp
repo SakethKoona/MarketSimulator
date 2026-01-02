@@ -1,4 +1,3 @@
-
 #include "errors.hpp"
 #include "skiplist.hpp"
 #include <cstdint>
@@ -86,7 +85,7 @@ using Book = SkipList<Price, PriceLevel>;
 
 struct OrderInfo {
   PriceLevel *priceLevel;
-  std::list<Order>::iterator order;
+  OrderIterator order;
 };
 
 class OrderBook {
@@ -94,10 +93,20 @@ class OrderBook {
   Book asks_;
   std::unordered_map<OrderId, OrderInfo> orderLookup_;
 
+  // Delete copy (or implement if needed)
+  OrderBook(const OrderBook&) = delete;
+  OrderBook& operator=(const OrderBook&) = delete;
+
+  // Declaring explicit move constructors
+  OrderBook(OrderBook&&) = default;
+  OrderBook& operator=(OrderBook&&) = default;
+
 public:
   std::string symbol;
   OrderBook();
-  OrderBook(std::string symbol);
+  explicit OrderBook(const std::string& sym);
+  
+
   const Book& bids() const;
   const Book& asks() const;
   OrderResult addOrder(const Order& order);

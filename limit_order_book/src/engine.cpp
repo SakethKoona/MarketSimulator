@@ -6,6 +6,8 @@ std::atomic<OrderId> MatchingEngine::nextOrderId_{1};
 std::atomic<TradeId> MatchingEngine::nextTradeId_{1};
 
 bool IsPriceMoreAggressive(Price price, Price other, Side side) {
+    if (price == other) return true;
+
     if (side == Side::Buy) {
         return price > other;
     } else {
@@ -22,24 +24,25 @@ MatchingEngine::MatchingEngine() {
     // Optional TODO: If we specify any orders already in the orderbook through the JSON config
     // We can load in the orderbooks with those orders specifically
     json valid_symbols = data["symbols"];
-    for (auto& [key, value] : valid_symbols.items()) {
-        books_.emplace(key, OrderBook{});
+    for (auto& [stock, params] : valid_symbols.items()) {
+        books_.emplace(stock, std::make_unique<OrderBook>("AAPL"));
     }
 }
 
-EngineResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif) {
-
+OrderId MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif) {
+    std::cout << "we atlesat entered the function" << std::endl;
     auto it = books_.find(symbol);
     if (it == books_.end()) {
-        return EngineResult::SymbolNotFound;
+        throw std::runtime_error("Symbol not found");
     }
 
     // If we do find the symbol, then we get its orderbook
-    OrderBook& ob = it->second;
+    OrderBook& ob = *it->second.get();
+    OrderId id = MatchingEngine::nextOrderId();
 
     // Create and package the order
     Order order = Order(
-        MatchingEngine::nextOrderId(),
+        id,
         price,
         quantity,
         type,
@@ -48,6 +51,8 @@ EngineResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity qu
     );
 
     MatchResult res = FillOrder(order, ob);
+    std::cout << "maybe here" << std::endl;
+
     
     if (res.error_code != EngineResult::Success) {
         std::cout << "something went wrong" << std::endl;
@@ -55,7 +60,7 @@ EngineResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity qu
         std::cout << "everything was good" << std::endl;
     }
 
-    return EngineResult::Success;
+    return id;
 }
 
 OrderId MatchingEngine::nextOrderId() {
@@ -180,6 +185,7 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
         // Do nothing
         break;
     case TypeInForce::FOK: // How do we deal wit this? we either fill completely or throw this away completely
+        // We deal with this earlier
         break;
     default:
         break;
@@ -249,6 +255,6 @@ void MatchingEngine::DisplayBook(Symbol symbol) {
         throw std::runtime_error("Couldn't find symbol in book");
     }
 
-    OrderBook& ob = it->second;
+    OrderBook& ob = *it->second.get();
     ob.Display();
 }

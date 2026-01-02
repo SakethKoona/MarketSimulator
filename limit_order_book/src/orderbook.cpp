@@ -140,8 +140,13 @@ std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
    ORDER BOOK
    ============================================================ */
 
-OrderBook::OrderBook(std::string symbol) : bids_(0.5f), asks_(0.5f), symbol(symbol)  {}
-OrderBook::OrderBook() : bids_(0.5f), asks_(0.5f), symbol("") {}
+OrderBook::OrderBook() 
+    : bids_(0.5), asks_(0.5), symbol("") {
+}
+
+OrderBook::OrderBook(const std::string& sym) 
+    : bids_(0.5), asks_(0.5), symbol(sym) {
+}
 
 const Book& OrderBook::bids() const { return bids_; }
 const Book& OrderBook::asks() const { return asks_; }

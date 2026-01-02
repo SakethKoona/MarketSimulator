@@ -45,7 +45,7 @@ public:
     MatchingEngine();
 
     // API's
-    EngineResult SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
+    OrderId SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
     EngineResult CancelOrder(OrderId id);
     EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
     void DisplayBook(Symbol symbol);
@@ -56,7 +56,7 @@ private:
     static std::atomic<OrderId> nextOrderId_;
     static std::atomic<TradeId> nextTradeId_;
 
-    std::unordered_map<Symbol, OrderBook> books_;
+    std::unordered_map<Symbol, std::unique_ptr<OrderBook>> books_;
     std::unordered_map<OrderId, OrderBook*> orders_;
 
     MatchResult FillOrder(Order& order, OrderBook& book);

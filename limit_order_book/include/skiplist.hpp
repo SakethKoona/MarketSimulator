@@ -26,10 +26,23 @@ template <typename Key, typename Value> struct SkipListNode {
 
 template <typename Key, typename Value> class SkipList {
 public:
-  SkipList(float p) : p(p) {
+  SkipList(float p) : p(p), length(0), tail(nullptr) {
     this->head_ptr = new SkipListNode<Key, Value>(Key{}, Value{}, MAX_HEIGHT);
-    this->length = 0;
   }
+
+  ~SkipList() { //We run into a segfault for some reason when we include the destructor
+    auto* current = head_ptr->forward[0];
+    while (current) {
+      auto* next = current->forward[0];
+      delete current;
+      current = next;
+    }
+
+    delete head_ptr;
+  }
+
+  // SkipList(const SkipList&) = delete;
+  // SkipList& operator=(const SkipList&) = delete;
 
   SkipListNode<Key, Value> *head_ptr;
   float p;
