@@ -17,6 +17,11 @@ template <typename Key, typename Value> struct SkipListNode {
       forward[i] = nullptr;
     }
   }
+
+  SkipListNode<Key, Value>* Next(int level) {
+    if (level > height) throw std::runtime_error("Cannot go higher than this node's height");
+    return forward[level];
+  }
 };
 
 template <typename Key, typename Value> class SkipList {
@@ -97,6 +102,8 @@ public:
 
   int len() { return this->length; }
   SkipListNode<Key, Value>* getMax() { return tail; }
+
+  SkipListNode<Key, Value>* GetHead() const { return head_ptr->forward[0]; }
 
   bool delete_node(const Key &key) {
     auto *current = head_ptr;

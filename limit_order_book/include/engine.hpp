@@ -8,7 +8,8 @@ enum class EngineResult {
     Success,
     SymbolNotFound,
     OrderNotFound,
-    Failed
+    Failed,
+    NotEnoughLiquidity,
 };
 
 
@@ -35,6 +36,7 @@ struct Trade {
 
 struct MatchResult {
     std::vector<Trade> trades;
+    EngineResult error_code;
 };
 
 class MatchingEngine {
@@ -46,6 +48,8 @@ public:
     EngineResult SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
     EngineResult CancelOrder(OrderId id);
     EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
+    void DisplayBook(Symbol symbol);
+
 
 
 private:

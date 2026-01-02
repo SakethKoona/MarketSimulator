@@ -35,7 +35,7 @@ EngineResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity qu
     }
 
     // If we do find the symbol, then we get its orderbook
-    OrderBook ob = it->second;
+    OrderBook& ob = it->second;
 
     // Create and package the order
     Order order = Order(
@@ -47,7 +47,13 @@ EngineResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity qu
         side
     );
 
-    FillOrder(order, ob);
+    MatchResult res = FillOrder(order, ob);
+    
+    if (res.error_code != EngineResult::Success) {
+        std::cout << "something went wrong" << std::endl;
+    } else {
+        std::cout << "everything was good" << std::endl;
+    }
 
     return EngineResult::Success;
 }
@@ -71,32 +77,58 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
     */
     MatchResult res{};
 
-    // THIS IMPLEMENTAION FOR FOK IS WRONG, FIX BUGS
-    Quantity remaining = incoming.quantity;
-    bool canFillAll = true;
+    // THIS IMPLEMENTAION FOR FOK IS A WORK IN PROGRESS, FIX BUGS
+    if (incoming.typeInForce == TypeInForce::FOK) {
+        std::cout << "We are in the FOK checking loop" << std::endl;
+        Quantity remaining = incoming.quantity;
+        bool canFillAll = false;
+        const Book& match_book = (incoming.side == Side::Buy) ? book.asks() : book.bids();
+        auto* level = match_book.GetHead();
 
-    /*
-    We want to essentially go through all the price levels
-    and simulate what it would be like to match without actually making
-    any changes
-    */
-    while (remaining > 0) {
-        
+        /*
+        We want to essentially go through all the price levels
+        and simulate what it would be like to match without actually making
+        any changes
+        */
+        while (level != nullptr) {
+            Quantity resting = (*level).value.TotalQuantity();
+
+            if (resting >= remaining) {
+                canFillAll = true;
+                break;
+            } else { // Resting < remaining
+                remaining -= resting;
+            }
+
+            level = level->Next(0);
+        }
+
+        if (!canFillAll) {
+            res.error_code = EngineResult::NotEnoughLiquidity;
+            return res;
+        }
     }
-
-
 
     while (incoming.quantity > 0) {
         const PriceLevel* price_level = (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
 
-        if (!price_level) break; // Nothing to match, book was empty
+        if (price_level == nullptr) {
+            std::cout << "Book was empty, 0 price levels" << std::endl;
+            res.error_code = EngineResult::NotEnoughLiquidity;
+            break;
+        }; // Nothing to match, book was empty
 
         auto& resting = price_level->orders.front(); // Time priority, so we get fifo order
         Quantity adjustment = std::min(incoming.quantity, resting.quantity);
         Price exec_price = resting.price;
 
         // Early exit condition for limit orders
-        if (incoming.orderType == OrderType::LIMIT && !IsPriceMoreAggressive(incoming.price, resting.price, resting.side)) break;
+        if (incoming.orderType == OrderType::LIMIT && !IsPriceMoreAggressive(incoming.price, resting.price, incoming.side)) {
+            std::cout << "aggressive price " << incoming.price << " " << resting.price << std::endl;
+            break;
+        } else {
+            std::cout << resting.price << std::endl;        
+        }
 
         // Actual trade happenning in the order book
         Timestamp currentTime = std::chrono::duration_cast<std::chrono::nanoseconds>
@@ -139,7 +171,7 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
     switch (incoming.typeInForce)
     {
     case TypeInForce::GTC: // If we're good till cancel, then we check if we have any quantity, and we just add it to the price level
-        if (incoming.quantity > 0) {
+        if (incoming.quantity > 0 && incoming.orderType == OrderType::LIMIT) {
             book.addOrder(incoming);
             orders_.emplace(incoming.orderId, &book);
         }
@@ -153,6 +185,7 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
         break;
     }
 
+    res.error_code = EngineResult::Success;
     return res;
 }
 
@@ -208,4 +241,14 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty, std::optio
     }
 
     return EngineResult::Success;
+}
+
+void MatchingEngine::DisplayBook(Symbol symbol) {
+    auto it = books_.find(symbol);
+    if (it == books_.end()) {
+        throw std::runtime_error("Couldn't find symbol in book");
+    }
+
+    OrderBook& ob = it->second;
+    ob.Display();
 }

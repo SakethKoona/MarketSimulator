@@ -109,6 +109,7 @@ public:
   const PriceLevel *bestAsk() const;
 
   const OrderInfo* FindOrder(OrderId id);
+  
 
 private:
 };
