@@ -41,7 +41,7 @@ int main() {
 
   engine.DisplayBook("AAPL");
 
-  OrderId id3 = engine.SubmitOrder("AAPL", 100, 12, Side::Sell);
+  OrderId id3 = engine.SubmitOrder("AAPL", 100, 3, Side::Sell);
   engine.DisplayBook("AAPL");
 
   return 0;

@@ -12,4 +12,5 @@ enum class ModifyResult {
     Replaced,
     OrderNotFound,
     Rejected,
+    QtyIncreaseNotAllowed
 };

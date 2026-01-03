@@ -110,12 +110,9 @@ OrderResult PriceLevel::RemoveOrder(OrderIterator orderIt) {
 }
 
 ModifyResult PriceLevel::ModifyOrder(OrderIterator& orderIt, Quantity newQty) {
-  if (newQty > orderIt->quantity) return ModifyResult::Rejected;
-  if (newQty == 0) {
-    RemoveOrder(orderIt);
-    return ModifyResult::Success;
-  }
-  totalQuantity -= (orderIt->quantity - newQty);
+  if (newQty > orderIt->quantity) return ModifyResult::QtyIncreaseNotAllowed;
+  Quantity diff = orderIt->quantity - newQty;
+  totalQuantity -= diff;
   orderIt->quantity = newQty;
   return ModifyResult::Success;
 }
@@ -212,26 +209,35 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   OrderInfo& entryInfo = it->second;
   PriceLevel* pl = entryInfo.priceLevel;
   OrderIterator order = entryInfo.order;
+  Side side = order->side;
 
-  ModifyResult res =  pl->ModifyOrder(order, newQty); // We remove the order here and update the size if the new quantity is 0
+  // Modify Order from the price level no longer implicitly deletes
+  ModifyResult res =  pl->ModifyOrder(order, newQty);
   
-  if (newQty == 0 || (res == ModifyResult::Success && pl->GetSize() == 0)) {
+
+  if (newQty == 0) {
+    pl->RemoveOrder(order);
     orderLookup_.erase(id);
-    auto& book = order->side == Side::Buy ? bids_ : asks_;
-    if (pl->GetSize() == 0) book.delete_node(pl->price);
+
+    if (pl->GetSize() == 0) {
+      auto& book = side == Side::Buy ? bids_ : asks_;
+      book.delete_node(pl->price);
+    }
+
+    return ModifyResult::Success;
   }
 
-  return res;
+  return pl->ModifyOrder(order, newQty);
 }
 
 const PriceLevel *OrderBook::bestAsk() const {
-  auto* node = asks_.head_ptr->forward[0];
+  auto* node = asks_.GetHead();
   if (!node) return nullptr;
   return &node->value;
 }
 
 const PriceLevel *OrderBook::bestBid() const {
-  auto* node = bids_.head_ptr->forward[0];
+  auto* node = bids_.GetHead();
   if (!node) return nullptr;
   return &node->value;
 }
@@ -283,7 +289,7 @@ void OrderBook::Display() {
             << "╚═══════════════════════════════════════╝"
             << COLORS::reset << "\n\n";
 
-  auto* askNode = asks_.head_ptr->forward[0];
+  auto* askNode = asks_.GetHead();
   while (askNode) {
     PriceLevel& level = askNode->value;
 
@@ -307,7 +313,7 @@ void OrderBook::Display() {
             << "╚═══════════════════════════════════════╝"
             << COLORS::reset << "\n\n";
 
-  auto* bidNode = bids_.head_ptr->forward[0];
+  auto* bidNode = bids_.GetHead();
   while (bidNode) {
     PriceLevel& level = bidNode->value;
 
