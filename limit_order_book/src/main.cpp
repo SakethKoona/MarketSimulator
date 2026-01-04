@@ -147,6 +147,35 @@ void test_modify_partial_fill_then_modify() {
     engine.DisplayBook("AAPL");
 }
 
+void test_l2_snapshot() {
+    std::cout << "\n=== TEST: L2 Snapshot ===" << std::endl;
+    
+    MatchingEngine engine{};
+    
+    // Add a bunch of orders at different price levels
+    
+    // Sell orders (asks)
+    engine.SubmitOrder("AAPL", 115, 50, Side::Sell);
+    engine.SubmitOrder("AAPL", 115, 30, Side::Sell);  // Same level
+    engine.SubmitOrder("AAPL", 112, 150, Side::Sell);
+    engine.SubmitOrder("AAPL", 110, 250, Side::Sell);
+    engine.SubmitOrder("AAPL", 108, 100, Side::Sell);
+    
+    // Buy orders (bids)
+    engine.SubmitOrder("AAPL", 105, 500, Side::Buy);
+    engine.SubmitOrder("AAPL", 105, 200, Side::Buy);  // Same level
+    engine.SubmitOrder("AAPL", 102, 200, Side::Buy);
+    engine.SubmitOrder("AAPL", 100, 100, Side::Buy);
+    engine.SubmitOrder("AAPL", 98, 75, Side::Buy);
+    engine.SubmitOrder("AAPL", 95, 300, Side::Buy);
+    
+    std::cout << "\nFull order book display:" << std::endl;
+    engine.DisplayBook("AAPL");
+    
+    std::cout << "\n\nL2 Snapshot (aggregated by price level):" << std::endl;
+    engine.L2Snapshot("AAPL");
+}
+
 int main() {
     std::cout << "╔════════════════════════════════════════╗" << std::endl;
     std::cout << "║   MATCHING ENGINE - MODIFY ORDER TESTS ║" << std::endl;
@@ -159,6 +188,7 @@ int main() {
     test_modify_nonexistent_order();
     test_modify_to_zero_quantity();
     test_modify_partial_fill_then_modify();
+    test_l2_snapshot();
 
     std::cout << "\n╔════════════════════════════════════════╗" << std::endl;
     std::cout << "║         ALL TESTS COMPLETED!           ║" << std::endl;

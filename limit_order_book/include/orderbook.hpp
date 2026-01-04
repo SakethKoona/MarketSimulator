@@ -110,6 +110,7 @@ public:
   OrderResult CancelOrder(OrderId id);
   ModifyResult ModifyOrder(OrderId id, Quantity newQty);
   void Display();
+  void L2Snapshot();
 
   const PriceLevel *bestBid() const;
   const PriceLevel *bestAsk() const;

@@ -54,6 +54,7 @@ public:
     EngineResult CancelOrder(OrderId id);
     EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
     void DisplayBook(Symbol symbol);
+    void L2Snapshot(Symbol symbol);
 
 
 

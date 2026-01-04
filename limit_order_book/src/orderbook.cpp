@@ -2,7 +2,7 @@
 #include <iomanip>
 
 #ifndef DEBUG
-  #define DEBUG
+#define DEBUG
 #endif
 
 /* ============================================================
@@ -58,7 +58,9 @@ void PrintOrderBookHeader(std::ostream &os) {
 Order::Order(OrderId orderId, Price price, Quantity quantity,
              OrderType orderType, TypeInForce typeInForce, Side side)
     : orderId(orderId), price(price), quantity(quantity), orderType(orderType),
-      typeInForce(typeInForce), side(side) { // TODO: Add functionality here that automatically creates an order id
+      typeInForce(typeInForce),
+      side(side) { // TODO: Add functionality here that automatically creates an
+                   // order id
 
   this->timestamp =
       std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -108,8 +110,9 @@ OrderResult PriceLevel::RemoveOrder(OrderIterator orderIt) {
   return OrderResult::Success;
 }
 
-ModifyResult PriceLevel::ModifyOrder(OrderIterator& orderIt, Quantity newQty) {
-  if (newQty > orderIt->quantity) return ModifyResult::QtyIncreaseNotAllowed;
+ModifyResult PriceLevel::ModifyOrder(OrderIterator &orderIt, Quantity newQty) {
+  if (newQty > orderIt->quantity)
+    return ModifyResult::QtyIncreaseNotAllowed;
   Quantity diff = orderIt->quantity - newQty;
   totalQuantity -= diff;
   orderIt->quantity = newQty;
@@ -122,10 +125,10 @@ Quantity PriceLevel::TotalQuantity() const { return totalQuantity; }
 
 void PriceLevel::SetPrice(Price price) { this->price = price; }
 
-std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
+std::ostream &operator<<(std::ostream &os, const PriceLevel &pl) {
   os << COLORS::magenta << pl.price << COLORS::reset << std::endl;
 
-  for (const auto& order : pl.orders) {
+  for (const auto &order : pl.orders) {
     os << "  " << order << std::endl;
   }
 
@@ -136,20 +139,18 @@ std::ostream& operator<<(std::ostream& os, const PriceLevel& pl) {
    ORDER BOOK
    ============================================================ */
 
-OrderBook::OrderBook() 
-    : bids_(0.5), asks_(0.5), symbol("") {
-}
+OrderBook::OrderBook() : bids_(0.5), asks_(0.5), symbol("") {}
 
-OrderBook::OrderBook(const std::string& sym) 
-    : bids_(0.5), asks_(0.5), symbol(sym) {
-}
+OrderBook::OrderBook(const std::string &sym)
+    : bids_(0.5), asks_(0.5), symbol(sym) {}
 
-const Book& OrderBook::bids() const { return bids_; }
-const Book& OrderBook::asks() const { return asks_; }
+const Book &OrderBook::bids() const { return bids_; }
+const Book &OrderBook::asks() const { return asks_; }
 
-OrderResult OrderBook::addOrder(const Order& order) {
-  // Small issue here to fix later TODO: we set price even if we get an existing price level
-  // And apparently that might break invariants in the future, so something to watch out for
+OrderResult OrderBook::addOrder(const Order &order) {
+  // Small issue here to fix later TODO: we set price even if we get an existing
+  // price level And apparently that might break invariants in the future, so
+  // something to watch out for
   if (order.quantity <= 0)
     return OrderResult::InvalidQty;
 
@@ -160,8 +161,11 @@ OrderResult OrderBook::addOrder(const Order& order) {
   // Checks have passed do the actual inserting
   auto &book = (order.side == Side::Buy) ? bids_ : asks_;
   Price priceKey = (order.side == Side::Buy) ? -order.price : order.price;
-  auto *priceLevel = book.insertOrGet(priceKey); // Create a new Price level if needed or get the old one
-  priceLevel->value.SetPrice(order.price); // When we set the price in the price level, we keep it positive, since we only get by Key
+  auto *priceLevel = book.insertOrGet(
+      priceKey); // Create a new Price level if needed or get the old one
+  priceLevel->value.SetPrice(
+      order.price); // When we set the price in the price level, we keep it
+                    // positive, since we only get by Key
   auto insertResult = priceLevel->value.AddOrder(order);
 
   OrderInfo entryInfo = OrderInfo{};
@@ -173,10 +177,12 @@ OrderResult OrderBook::addOrder(const Order& order) {
   return OrderResult::Success;
 }
 
-/// @brief Cancels a specific order from the orderbook by removing it from both the price level and the order lookup table.
-/// Automatically removes the price level if it's empty after the cancel
+/// @brief Cancels a specific order from the orderbook by removing it from both
+/// the price level and the order lookup table. Automatically removes the price
+/// level if it's empty after the cancel
 /// @param id Id of the order we want to cancel
-/// @return OrderResult: an error code struct representing what happenned with the order
+/// @return OrderResult: an error code struct representing what happenned with
+/// the order
 OrderResult OrderBook::CancelOrder(OrderId id) {
   auto it = orderLookup_.find(id);
   if (it == orderLookup_.end())
@@ -187,12 +193,12 @@ OrderResult OrderBook::CancelOrder(OrderId id) {
   Side side = it->second.order->side;
   priceLevel->RemoveOrder(it->second.order);
 
-
   // Delete the price level if needed
   // TODO: Add error handling here if node deletion fails
   if (priceLevel->GetSize() <= 0) {
     auto &book = side == Side::Buy ? bids_ : asks_;
-    Price priceKey = (side == Side::Buy) ? -priceLevel->price : priceLevel->price;
+    Price priceKey =
+        (side == Side::Buy) ? -priceLevel->price : priceLevel->price;
     book.delete_node(priceKey);
   }
 
@@ -201,11 +207,13 @@ OrderResult OrderBook::CancelOrder(OrderId id) {
   return OrderResult::Success;
 }
 
-/// @brief Modifies the order with a new Quantity less than the original, maintaining price-time priority.
-/// If the newQty == 0, we automatically remove from the Price level and order lookup table.
+/// @brief Modifies the order with a new Quantity less than the original,
+/// maintaining price-time priority. If the newQty == 0, we automatically remove
+/// from the Price level and order lookup table.
 /// @param id id of the order
 /// @param newQty new quantity
-/// @return ModifyResult: an error code struct representing the outcome of the operation
+/// @return ModifyResult: an error code struct representing the outcome of the
+/// operation
 ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   // First, we find the order within the orderlookup
   auto it = orderLookup_.find(id);
@@ -214,22 +222,21 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   }
 
   // Get the pointer to the actual order
-  OrderInfo& entryInfo = it->second;
-  PriceLevel* pl = entryInfo.priceLevel;
+  OrderInfo &entryInfo = it->second;
+  PriceLevel *pl = entryInfo.priceLevel;
   OrderIterator order = entryInfo.order;
 
   if (newQty == 0) {
     auto res = CancelOrder(id);
-    return (res == OrderResult::Success)
-            ? ModifyResult::Success
-            : ModifyResult::Rejected;
+    return (res == OrderResult::Success) ? ModifyResult::Success
+                                         : ModifyResult::Rejected;
   }
 
   return pl->ModifyOrder(order, newQty);
 }
 
 const PriceLevel *OrderBook::bestAsk() const {
-  auto* node = asks_.GetHead();
+  auto *node = asks_.GetHead();
   if (!node) {
     // std::cout << "best ask pointer was null" << std::endl;
     return nullptr;
@@ -238,8 +245,9 @@ const PriceLevel *OrderBook::bestAsk() const {
 }
 
 const PriceLevel *OrderBook::bestBid() const {
-  auto* node = bids_.GetHead();
-  if (!node) return nullptr;
+  auto *node = bids_.GetHead();
+  if (!node)
+    return nullptr;
   return &node->value;
 }
 
@@ -248,13 +256,13 @@ const PriceLevel *OrderBook::bestBid() const {
    ============================================================ */
 
 bool isDarkMode() {
-  const char* colorterm = std::getenv("COLORFG");
+  const char *colorterm = std::getenv("COLORFG");
   if (colorterm && std::string(colorterm) == "light") {
     return false;
   }
 
   // Check if running in common dark mode terminals
-  const char* term = std::getenv("TERM_PROGRAM");
+  const char *term = std::getenv("TERM_PROGRAM");
   if (term) {
     std::string termStr(term);
     if (termStr == "iTerm.app" || termStr == "Apple_Terminal") {
@@ -277,29 +285,29 @@ void OrderBook::Display() {
   std::string boxColor = darkMode ? COLORS::bold : COLORS::dim;
 
   // Display symbol header
-  std::cout << "\n" << COLORS::bold << COLORS::cyan
+  std::cout << "\n"
+            << COLORS::bold << COLORS::cyan
             << "════════════════════════════════════════\n"
             << "         ORDER BOOK: " << symbol << "\n"
-            << "════════════════════════════════════════"
-            << COLORS::reset << "\n";
+            << "════════════════════════════════════════" << COLORS::reset
+            << "\n";
 
   // Display ASKS
-  std::cout << "\n" << boxColor << askHeaderColor
+  std::cout << "\n"
+            << boxColor << askHeaderColor
             << "╔═══════════════════════════════════════╗\n"
             << "║            SELL SIDE (ASKS)           ║\n"
-            << "╚═══════════════════════════════════════╝"
-            << COLORS::reset << "\n\n";
+            << "╚═══════════════════════════════════════╝" << COLORS::reset
+            << "\n\n";
 
-  auto* askNode = asks_.GetHead();
+  auto *askNode = asks_.GetHead();
   while (askNode) {
-    PriceLevel& level = askNode->value;
+    PriceLevel &level = askNode->value;
 
-    std::cout << priceColor << COLORS::bold
-              << "Price: $" << level.price
-              << " (" << level.GetSize() << " orders)"
-              << COLORS::reset << "\n";
+    std::cout << priceColor << COLORS::bold << "Price: $" << level.price << " ("
+              << level.GetSize() << " orders)" << COLORS::reset << "\n";
 
-    for (const auto& order : level.orders) {
+    for (const auto &order : level.orders) {
       std::cout << "  " << order << "\n";
     }
     std::cout << "\n";
@@ -311,19 +319,17 @@ void OrderBook::Display() {
   std::cout << boxColor << bidHeaderColor
             << "╔═══════════════════════════════════════╗\n"
             << "║            BUY SIDE (BIDS)            ║\n"
-            << "╚═══════════════════════════════════════╝"
-            << COLORS::reset << "\n\n";
+            << "╚═══════════════════════════════════════╝" << COLORS::reset
+            << "\n\n";
 
-  auto* bidNode = bids_.GetHead();
+  auto *bidNode = bids_.GetHead();
   while (bidNode) {
-    PriceLevel& level = bidNode->value;
+    PriceLevel &level = bidNode->value;
 
-    std::cout << priceColor << COLORS::bold
-              << "Price: $" << level.price
-              << " (" << level.GetSize() << " orders)"
-              << COLORS::reset << "\n";
+    std::cout << priceColor << COLORS::bold << "Price: $" << level.price << " ("
+              << level.GetSize() << " orders)" << COLORS::reset << "\n";
 
-    for (const auto& order : level.orders) {
+    for (const auto &order : level.orders) {
       std::cout << "  " << order << "\n";
     }
     std::cout << "\n";
@@ -332,7 +338,97 @@ void OrderBook::Display() {
   }
 }
 
-const OrderInfo* OrderBook::FindOrder(OrderId id) {
+void OrderBook::L2Snapshot() {
+  bool darkMode = isDarkMode();
+
+  std::string askColor = darkMode ? COLORS::red : COLORS::red;
+  std::string bidColor = darkMode ? COLORS::green : COLORS::green;
+  std::string priceColor = darkMode ? COLORS::yellow : COLORS::magenta;
+
+  // UTF-8 block characters
+  const std::string BLOCK = "█";
+  const std::string LIGHT_BLOCK = "░";
+
+  // Find max quantity for scaling
+  Quantity maxQty = 0;
+
+  auto* askNode = asks_.GetHead();
+  while (askNode) {
+    maxQty = std::max(maxQty, askNode->value.TotalQuantity());
+    askNode = askNode->forward[0];
+  }
+
+  auto* bidNode = bids_.GetHead();
+  while (bidNode) {
+    maxQty = std::max(maxQty, bidNode->value.TotalQuantity());
+    bidNode = bidNode->forward[0];
+  }
+
+  const int barWidth = 40;
+
+  // Header
+  std::cout << "\n" << COLORS::bold << COLORS::cyan
+            << "         ╔════════════════ " << symbol << " L2 ════════════════╗"
+            << COLORS::reset << "\n\n";
+
+  // Asks - lowest to highest
+  // std::cout << askColor << COLORS::bold << "ASKS:" << COLORS::reset << "\n";
+  askNode = asks_.GetHead();
+  while (askNode) {
+    const PriceLevel& level = askNode->value;
+    Quantity qty = level.TotalQuantity();
+    int barLen = maxQty > 0 ? (qty * barWidth / maxQty) : 0;
+
+    std::string bar;
+    for (int i = 0; i < barLen; ++i) bar += BLOCK;
+    for (int i = 0; i < barWidth - barLen; ++i) bar += LIGHT_BLOCK;
+
+    std::cout << priceColor << std::setw(8) << level.price << COLORS::reset
+              << " │ " << askColor << bar << COLORS::reset
+              << " " << qty << "\n";
+
+    askNode = askNode->forward[0];
+  }
+
+  // Spread
+  const PriceLevel* bestAskLevel = bestAsk();
+  const PriceLevel* bestBidLevel = bestBid();
+  if (bestAskLevel && bestBidLevel) {
+    Price spread = bestAskLevel->price - bestBidLevel->price;
+
+    std::string line;
+    for (int i = 0; i < barWidth; ++i) {
+        line += "\xE2\x94\x80";  // UTF-8 encoding for ─
+    }
+    std::cout << COLORS::dim << "         ├" << line
+              << "┤ spread: " << spread << COLORS::reset << "\n";
+  }
+
+  // Bids - highest to lowest
+  // std::cout << bidColor << COLORS::bold << "BIDS:" << COLORS::reset << "\n";
+  bidNode = bids_.GetHead();
+  while (bidNode) {
+    const PriceLevel& level = bidNode->value;
+    Quantity qty = level.TotalQuantity();
+    int barLen = maxQty > 0 ? (qty * barWidth / maxQty) : 0;
+
+    std::string bar;
+    for (int i = 0; i < barLen; ++i) bar += BLOCK;
+    for (int i = 0; i < barWidth - barLen; ++i) bar += LIGHT_BLOCK;
+
+    std::cout << priceColor << std::setw(8) << level.price << COLORS::reset
+              << " │ " << bidColor << bar << COLORS::reset
+              << " " << qty << "\n";
+
+    bidNode = bidNode->forward[0];
+  }
+
+  std::cout << "\n";
+}
+
+
+
+const OrderInfo *OrderBook::FindOrder(OrderId id) {
   auto it = orderLookup_.find(id);
-  return (it == orderLookup_.end()) ?  nullptr : &it->second;
+  return (it == orderLookup_.end()) ? nullptr : &it->second;
 }

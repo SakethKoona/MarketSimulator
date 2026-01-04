@@ -267,3 +267,13 @@ void MatchingEngine::DisplayBook(Symbol symbol) {
     OrderBook& ob = *it->second.get();
     ob.Display();
 }
+
+void MatchingEngine::L2Snapshot(Symbol symbol) {
+    auto it = books_.find(symbol);
+    if (it == books_.end()) {
+        throw std::runtime_error("Couldn't find symbol in book");
+    }
+
+    OrderBook& ob = *it->second.get();
+    ob.L2Snapshot();
+}
