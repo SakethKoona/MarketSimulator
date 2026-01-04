@@ -97,9 +97,6 @@ class OrderBook {
   OrderBook(const OrderBook&) = delete;
   OrderBook& operator=(const OrderBook&) = delete;
 
-  // Declaring explicit move constructors
-  OrderBook(OrderBook&&) = default;
-  OrderBook& operator=(OrderBook&&) = default;
 
 public:
   std::string symbol;

@@ -1,6 +1,6 @@
 #include "arena.hpp"
 
-ArenaAllocator::ArenaAllocator(std::size_t size) : offset_(0), capacity_(size) {
+ArenaAllocator::ArenaAllocator(std::size_t size) : capacity_(size), offset_(0) {
     // We allocate all the memory at once
     buffer_ = static_cast<char*>(::operator new(size));
 }

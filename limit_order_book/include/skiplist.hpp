@@ -10,8 +10,8 @@ template <typename Key, typename Value> struct SkipListNode {
   Key key;
   Value value;
   SkipListNode *forward[MAX_HEIGHT];
-  SkipListNode* free_next_;
   uint16_t height;
+  SkipListNode* free_next_;
 
   // Creating the constructor
   SkipListNode(Key k, Value v, uint16_t h) : key(k), value(v), height(h), free_next_(nullptr) {
@@ -177,8 +177,8 @@ public:
 private:
   int length;
   SkipListNode<Key, Value> *tail;
-  ArenaPool<SkipListNode<Key, Value>> pool_;
   ArenaAllocator allocator_;
+  ArenaPool<SkipListNode<Key, Value>> pool_;
 
   int getRandomLevel() {
     int rand_level = 0;

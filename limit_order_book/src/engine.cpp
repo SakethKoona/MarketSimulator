@@ -29,7 +29,7 @@ MatchingEngine::MatchingEngine() {
     }
 }
 
-SubmitResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif) {
+SubmitResult MatchingEngine::SubmitOrderInternal(Symbol symbol, OrderId id, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif) {
     auto it = books_.find(symbol);
     if (it == books_.end()) {
         throw std::runtime_error("Symbol not found");
@@ -37,7 +37,6 @@ SubmitResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity qu
 
     // If we do find the symbol, then we get its orderbook
     OrderBook& ob = *it->second.get();
-    OrderId id = MatchingEngine::nextOrderId();
 
     // Create and package the order
     Order order = Order(
@@ -51,6 +50,20 @@ SubmitResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity qu
 
     MatchResult res = FillOrder(order, ob);
     return { id, res };
+}
+
+
+SubmitResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif) {
+    OrderId id = MatchingEngine::nextOrderId();
+    return SubmitOrderInternal(
+        symbol,
+        id,
+        price,
+        quantity,
+        side,
+        type,
+        tif
+    );
 }
 
 OrderId MatchingEngine::nextOrderId() {
@@ -220,17 +233,24 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty, std::optio
     // If only the quantity changed to something lower, then we can just call the orderbook's modify function
     if (newPrice || newQty > resting->order->quantity) {
         // We cancel and create
-        Order newOrder (
-            resting->order->orderId,
-            newPrice.value_or(resting->order->price),
-            newQty,
-            resting->order->orderType,
-            resting->order->typeInForce,
-            resting->order->side
-        );
+        Price oldPrice = resting->order->price;
+        OrderId newId = resting->order->orderId;
+        Side newSide = resting->order->side;
+        OrderType newType = resting->order->orderType;
+        TypeInForce newTif = resting->order->typeInForce;
 
-        book.CancelOrder(resting->order->orderId);
-        book.addOrder(newOrder);
+        // book.CancelOrder(resting->order->orderId);
+        // book.addOrder(newOrder);
+        CancelOrder(resting->order->orderId);
+        SubmitOrderInternal(
+            book.symbol, 
+            newId, 
+            newPrice.value_or(oldPrice),
+            newQty, 
+            newSide, 
+            newType, 
+            newTif
+        );
     } else if (newQty < resting->order->quantity) {
         book.ModifyOrder(resting->order->orderId, newQty);
     }

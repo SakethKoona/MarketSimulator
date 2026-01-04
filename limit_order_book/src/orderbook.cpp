@@ -1,6 +1,5 @@
 #include "../include/orderbook.hpp"
 #include <iomanip>
-#include <sstream>
 
 #ifndef DEBUG
   #define DEBUG
@@ -174,6 +173,10 @@ OrderResult OrderBook::addOrder(const Order& order) {
   return OrderResult::Success;
 }
 
+/// @brief Cancels a specific order from the orderbook by removing it from both the price level and the order lookup table.
+/// Automatically removes the price level if it's empty after the cancel
+/// @param id Id of the order we want to cancel
+/// @return OrderResult: an error code struct representing what happenned with the order
 OrderResult OrderBook::CancelOrder(OrderId id) {
   auto it = orderLookup_.find(id);
   if (it == orderLookup_.end())
@@ -198,6 +201,11 @@ OrderResult OrderBook::CancelOrder(OrderId id) {
   return OrderResult::Success;
 }
 
+/// @brief Modifies the order with a new Quantity less than the original, maintaining price-time priority.
+/// If the newQty == 0, we automatically remove from the Price level and order lookup table.
+/// @param id id of the order
+/// @param newQty new quantity
+/// @return ModifyResult: an error code struct representing the outcome of the operation
 ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   // First, we find the order within the orderlookup
   auto it = orderLookup_.find(id);
@@ -209,18 +217,12 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   OrderInfo& entryInfo = it->second;
   PriceLevel* pl = entryInfo.priceLevel;
   OrderIterator order = entryInfo.order;
-  Side side = order->side;
 
   if (newQty == 0) {
-    pl->RemoveOrder(order);
-    orderLookup_.erase(id);
-
-    if (pl->GetSize() == 0) {
-      auto& book = side == Side::Buy ? bids_ : asks_;
-      book.delete_node(pl->price);
-    }
-
-    return ModifyResult::Success;
+    auto res = CancelOrder(id);
+    return (res == OrderResult::Success)
+            ? ModifyResult::Success
+            : ModifyResult::Rejected;
   }
 
   return pl->ModifyOrder(order, newQty);
