@@ -39,13 +39,18 @@ struct MatchResult {
     EngineResult error_code;
 };
 
+struct SubmitResult {
+    OrderId createdId;
+    MatchResult matchRes;
+};
+
 class MatchingEngine {
 public:
     // Constructor
     MatchingEngine();
 
     // API's
-    OrderId SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
+    SubmitResult SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
     EngineResult CancelOrder(OrderId id);
     EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
     void DisplayBook(Symbol symbol);

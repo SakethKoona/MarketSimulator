@@ -29,8 +29,7 @@ MatchingEngine::MatchingEngine() {
     }
 }
 
-OrderId MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif) {
-    std::cout << "we atlesat entered the function" << std::endl;
+SubmitResult MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif) {
     auto it = books_.find(symbol);
     if (it == books_.end()) {
         throw std::runtime_error("Symbol not found");
@@ -51,16 +50,7 @@ OrderId MatchingEngine::SubmitOrder(Symbol symbol, Price price, Quantity quantit
     );
 
     MatchResult res = FillOrder(order, ob);
-    std::cout << "maybe here" << std::endl;
-
-    
-    if (res.error_code != EngineResult::Success) {
-        std::cout << "something went wrong" << std::endl;
-    } else {
-        std::cout << "everything was good" << std::endl;
-    }
-
-    return id;
+    return { id, res };
 }
 
 OrderId MatchingEngine::nextOrderId() {
@@ -82,9 +72,8 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
     */
     MatchResult res{};
 
-    // THIS IMPLEMENTAION FOR FOK IS A WORK IN PROGRESS, FIX BUGS
     if (incoming.typeInForce == TypeInForce::FOK) {
-        std::cout << "We are in the FOK checking loop" << std::endl;
+        // std::cout << "We are in the FOK checking loop" << std::endl;
         Quantity remaining = incoming.quantity;
         bool canFillAll = false;
         const Book& match_book = (incoming.side == Side::Buy) ? book.asks() : book.bids();
@@ -118,7 +107,7 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
         const PriceLevel* price_level = (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
 
         if (price_level == nullptr) {
-            std::cout << "Book was empty, 0 price levels" << std::endl;
+            // std::cout << "Book was empty, 0 price levels" << &incoming << std::endl;
             res.error_code = EngineResult::NotEnoughLiquidity;
             break;
         }; // Nothing to match, book was empty
@@ -129,10 +118,7 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
 
         // Early exit condition for limit orders
         if (incoming.orderType == OrderType::LIMIT && !IsPriceMoreAggressive(incoming.price, resting.price, incoming.side)) {
-            std::cout << "aggressive price " << incoming.price << " " << resting.price << std::endl;
             break;
-        } else {
-            std::cout << resting.price << std::endl;        
         }
 
         // Actual trade happenning in the order book
@@ -149,7 +135,11 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
         };
 
         incoming.quantity -= adjustment;
-        book.ModifyOrder(resting.orderId, resting.quantity - adjustment);
+        if (adjustment == resting.quantity) {
+            book.CancelOrder(resting.orderId);
+        } else {
+            book.ModifyOrder(resting.orderId, resting.quantity - adjustment);
+        }
 
         // Something has been matched, so we create a trade.
         Fill incoming_fill {
@@ -159,7 +149,6 @@ MatchResult MatchingEngine::FillOrder(Order& incoming, OrderBook& book) {
             .side = incoming.side,
             .time = currentTime
         };
-
 
         Trade trade {
             .id = MatchingEngine::nextTradeId(),

@@ -36,12 +36,13 @@ int main() {
 
   MatchingEngine engine{};
 
-  OrderId id1 = engine.SubmitOrder("AAPL", 100, 5, Side::Buy);
-  OrderId id2 = engine.SubmitOrder("AAPL", 105, 5, Side::Buy);
+  engine.SubmitOrder("AAPL", 100, 5, Side::Buy);
+  engine.SubmitOrder("AAPL", 105, 5, Side::Buy);
+  engine.SubmitOrder("AAPL", 200, 10, Side::Sell);
 
   engine.DisplayBook("AAPL");
 
-  OrderId id3 = engine.SubmitOrder("AAPL", 100, 3, Side::Sell);
+  engine.SubmitOrder("AAPL", 100, 12, Side::Sell);
   engine.DisplayBook("AAPL");
 
   return 0;

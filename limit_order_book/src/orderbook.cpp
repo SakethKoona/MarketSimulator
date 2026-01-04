@@ -211,10 +211,6 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
   OrderIterator order = entryInfo.order;
   Side side = order->side;
 
-  // Modify Order from the price level no longer implicitly deletes
-  ModifyResult res =  pl->ModifyOrder(order, newQty);
-  
-
   if (newQty == 0) {
     pl->RemoveOrder(order);
     orderLookup_.erase(id);
@@ -232,7 +228,10 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
 
 const PriceLevel *OrderBook::bestAsk() const {
   auto* node = asks_.GetHead();
-  if (!node) return nullptr;
+  if (!node) {
+    // std::cout << "best ask pointer was null" << std::endl;
+    return nullptr;
+  }
   return &node->value;
 }
 

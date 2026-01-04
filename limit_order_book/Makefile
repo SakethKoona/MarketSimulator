@@ -12,7 +12,8 @@ BIN_DIR = bin
 # Source files
 SOURCES = $(SRC_DIR)/main.cpp \
           $(SRC_DIR)/orderbook.cpp \
-          $(SRC_DIR)/engine.cpp
+          $(SRC_DIR)/engine.cpp \
+		  $(SRC_DIR)/arena.cpp
 
 # Object files
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)

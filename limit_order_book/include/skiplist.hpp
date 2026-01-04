@@ -1,3 +1,4 @@
+#include "arena.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -9,10 +10,11 @@ template <typename Key, typename Value> struct SkipListNode {
   Key key;
   Value value;
   SkipListNode *forward[MAX_HEIGHT];
+  SkipListNode* free_next_;
   uint16_t height;
 
   // Creating the constructor
-  SkipListNode(Key k, Value v, uint16_t h) : key(k), value(v), height(h) {
+  SkipListNode(Key k, Value v, uint16_t h) : key(k), value(v), height(h), free_next_(nullptr) {
     for (int i = 0; i < MAX_HEIGHT; i++) {
       forward[i] = nullptr;
     }
@@ -22,23 +24,32 @@ template <typename Key, typename Value> struct SkipListNode {
     if (level > height) throw std::runtime_error("Cannot go higher than this node's height");
     return forward[level];
   }
+
+  // Destructor
+  void Clear() {
+    // Free all the forward pointers
+    for (int i = 0; i < MAX_HEIGHT; i++) {
+      forward[i] = nullptr;
+    }
+    free_next_ = nullptr;
+  }
 };
 
 template <typename Key, typename Value> class SkipList {
 public:
-  SkipList(float p) : p(p), length(0), tail(nullptr) {
-    this->head_ptr = new SkipListNode<Key, Value>(Key{}, Value{}, MAX_HEIGHT);
+  SkipList(float p) : p(p), length(0), tail(nullptr), allocator_(1024*1024), pool_(allocator_)  {
+    this->head_ptr = pool_.allocate(Key{}, Value{}, MAX_HEIGHT);
   }
 
-  ~SkipList() { //We run into a segfault for some reason when we include the destructor
+  ~SkipList() {
     auto* current = head_ptr->forward[0];
     while (current) {
       auto* next = current->forward[0];
-      delete current;
+      pool_.deallocate(current);
       current = next;
     }
 
-    delete head_ptr;
+    pool_.deallocate(head_ptr);
   }
 
   // SkipList(const SkipList&) = delete;
@@ -96,7 +107,7 @@ public:
     Value value{}; // Value is initially empty
 
     // Actually create the newNode
-    auto *newNode = new SkipListNode<Key, Value>(key, value, static_cast<uint16_t>(lvl));
+    auto *newNode = pool_.allocate(key, value, static_cast<uint16_t>(lvl));
 
     // After we get the random level, we now run through the loop again
     // and insert it where it should be
@@ -134,8 +145,7 @@ public:
     if (target && target->key == key) {
       // Before we rewire, let's reassign the tail if needed
       if (target->forward[0] == nullptr) {
-        tail = update[0]; // The new tail becomes the next biggest one because
-                          // the current biggest is getting deleted
+        tail = update[0]; // The new tail becomes the next biggest one because the current biggest is getting deleted
       }
 
       for (int i = 0; i < MAX_HEIGHT; i++) {
@@ -147,12 +157,12 @@ public:
       return false;
     }
 
-    delete target;
+    pool_.deallocate(target);
     length--;
     return true;
   }
 
-  void printList() {
+  void printList() const {
     // Regular traversal from level 0
     auto *current = head_ptr;
     while (current) {
@@ -167,6 +177,9 @@ public:
 private:
   int length;
   SkipListNode<Key, Value> *tail;
+  ArenaPool<SkipListNode<Key, Value>> pool_;
+  ArenaAllocator allocator_;
+
   int getRandomLevel() {
     int rand_level = 0;
     double random_variable;
