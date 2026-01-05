@@ -3,7 +3,6 @@
 #include <string>
 
 enum class Level {
-    DEBUG,
     INFO,
     TRACE,
     WARNING,

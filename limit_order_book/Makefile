@@ -1,7 +1,9 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -std=c++23 -Wall -Wextra -O2
+CXXFLAGS = -std=c++23 -Wall -Wextra -O2 -g
 INCLUDES = -Iinclude -Ithird_party
+
+DEBUGFLAGS = -std=c++23 -Wall -Wextra -O0 -g -DDEBUG
 
 # Directories
 SRC_DIR = src
@@ -17,7 +19,7 @@ SOURCES = $(SRC_DIR)/main.cpp \
 		  $(SRC_DIR)/arena.cpp \
 			$(SRC_DIR)/logger.cpp
 
-# Object files
+#Object files
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 
 # Target executable
@@ -25,6 +27,9 @@ TARGET = $(BIN_DIR)/main
 
 # Default target
 all: directories $(TARGET)
+
+debug: CXXFLAGS = $(DEBUGFLAGS)
+debug: clean all
 
 # Create necessary directories
 directories:

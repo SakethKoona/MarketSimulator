@@ -14,3 +14,4 @@ enum class ModifyResult {
     Rejected,
     QtyIncreaseNotAllowed
 };
+

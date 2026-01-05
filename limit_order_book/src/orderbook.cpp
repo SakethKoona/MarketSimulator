@@ -1,10 +1,5 @@
 #include "../include/orderbook.hpp"
 #include <iomanip>
-
-#ifndef DEBUG
-#define DEBUG
-#endif
-
 /* ============================================================
    TIMESTAMP HELPERS
    ============================================================ */
@@ -41,7 +36,6 @@ inline void print_timestamp_5dp(std::ostream &os, std::int64_t ns_since_epoch) {
 /* ============================================================
    HEADER
    ============================================================ */
-
 void PrintOrderBookHeader(std::ostream &os) {
     constexpr int COL_W = 40;
 
@@ -54,12 +48,10 @@ void PrintOrderBookHeader(std::ostream &os) {
 /* ============================================================
    ORDER
    ============================================================ */
-
 Order::Order(OrderId orderId, Price price, Quantity quantity,
              OrderType orderType, TypeInForce typeInForce, Side side)
     : orderId(orderId), price(price), quantity(quantity), orderType(orderType),
-      typeInForce(typeInForce),
-      side(side) {  
+      typeInForce(typeInForce), side(side) {
 
     this->timestamp =
         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -199,7 +191,7 @@ OrderResult OrderBook::CancelOrder(OrderId id) {
             (side == Side::Buy) ? -priceLevel->price : priceLevel->price;
         bool deletionSuccess = book.delete_node(priceKey);
         if (!deletionSuccess) {
-          return OrderResult::OrderNotFound;
+            return OrderResult::OrderNotFound;
         }
     }
 
@@ -239,17 +231,16 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
 const PriceLevel *OrderBook::bestAsk() const {
     auto *node = asks_.GetHead();
     if (!node) {
-        // std::cout << "best ask pointer was null" << std::endl;
         return nullptr;
     }
     return &node->value;
 }
 
 const PriceLevel *OrderBook::bestBid() const {
-    auto *node = bids_.GetHead();
-    if (!node)
+    auto *bestBidNode = bids_.GetHead();
+    if (!bestBidNode)
         return nullptr;
-    return &node->value;
+    return &bestBidNode->value;
 }
 
 /* ============================================================

@@ -52,13 +52,13 @@ void test_modify_order_price() {
     engine.DisplayBook("AAPL");
 }
 
-void test_modify_order_price_and_quantity() {
+void test_modify_order_price_and_quantity_two() {
     std::cout << "\n=== TEST: Modify Order Price and Quantity ===" << std::endl;
 
     MatchingEngine engine{};
 
-    auto result = engine.SubmitOrder("AAPL", 100, 50, Side::Buy);
-    OrderId orderId = result.orderId;
+    auto result_one = engine.SubmitOrder("AAPL", 100, 50, Side::Buy);
+    OrderId orderId = result_one.orderId;
 
     std::cout << "Submitted order " << orderId << " - Buy 50 @ $100"
               << std::endl;
@@ -198,7 +198,7 @@ int main() {
 
     test_modify_order_quantity();
     test_modify_order_price();
-    test_modify_order_price_and_quantity();
+    test_modify_order_price_and_quantity_two();
     test_modify_triggers_match();
     test_modify_nonexistent_order();
     test_modify_to_zero_quantity();
@@ -208,6 +208,4 @@ int main() {
     std::cout << "\n╔════════════════════════════════════════╗" << std::endl;
     std::cout << "║         ALL TESTS COMPLETED!           ║" << std::endl;
     std::cout << "╚════════════════════════════════════════╝" << std::endl;
-
-    return 0;
 }
