@@ -3,5 +3,7 @@
         "AAPL": {},
         "GOOG": {},
         "NVDA": {}
-    }
+    },
+
+    "_comment": "For the python sim parameters, we can add features such as distribution parameters for each stock as well as the excitation relation between each"
 }

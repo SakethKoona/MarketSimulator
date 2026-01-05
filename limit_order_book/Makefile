@@ -8,12 +8,14 @@ SRC_DIR = src
 INCLUDE_DIR = include
 BUILD_DIR = build
 BIN_DIR = bin
+LOG_DIR = logs
 
 # Source files
 SOURCES = $(SRC_DIR)/main.cpp \
           $(SRC_DIR)/orderbook.cpp \
           $(SRC_DIR)/engine.cpp \
-		  $(SRC_DIR)/arena.cpp
+		  $(SRC_DIR)/arena.cpp \
+			$(SRC_DIR)/logger.cpp
 
 # Object files
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
@@ -28,6 +30,7 @@ all: directories $(TARGET)
 directories:
 	@mkdir -p $(BUILD_DIR)
 	@mkdir -p $(BIN_DIR)
+	@mkdir -p ${LOG_DIR}
 
 # Link object files to create executable
 $(TARGET): $(OBJECTS)

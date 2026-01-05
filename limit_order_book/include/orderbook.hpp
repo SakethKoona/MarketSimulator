@@ -106,7 +106,7 @@ public:
 
   const Book& bids() const;
   const Book& asks() const;
-  OrderResult addOrder(const Order& order);
+  OrderResult AddOrder(const Order& order);
   OrderResult CancelOrder(OrderId id);
   ModifyResult ModifyOrder(OrderId id, Quantity newQty);
   void Display();

@@ -1,5 +1,6 @@
 #include "orderbook.hpp"
 #include "nlohmann/json.hpp"
+#include "logger.hpp"
 #include <atomic>
 
 using Symbol = std::string;
@@ -11,7 +12,6 @@ enum class EngineResult {
     Failed,
     NotEnoughLiquidity,
 };
-
 
 struct Fill {
     OrderId orderId;
@@ -33,7 +33,6 @@ struct Trade {
     Fill resting;
 };
 
-
 struct MatchResult {
     std::vector<Trade> trades;
     EngineResult error_code;
@@ -45,29 +44,31 @@ struct SubmitResult {
 };
 
 class MatchingEngine {
-public:
+  public:
     // Constructor
     MatchingEngine();
 
     // API's
-    SubmitResult SubmitOrder(Symbol symbol, Price price, Quantity quantity, Side side, OrderType type = OrderType::LIMIT, TypeInForce tif = TypeInForce::GTC);
+    SubmitResult SubmitOrder(Symbol symbol, Price price, Quantity quantity,
+                             Side side, OrderType type = OrderType::LIMIT,
+                             TypeInForce tif = TypeInForce::GTC);
     EngineResult CancelOrder(OrderId id);
-    EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
+    EngineResult ModifyOrder(OrderId id, Quantity newQty,
+                             std::optional<Price> newPrice = std::nullopt);
     void DisplayBook(Symbol symbol);
     void L2Snapshot(Symbol symbol);
 
-
-
-private:
+  private:
     static std::atomic<OrderId> nextOrderId_;
     static std::atomic<TradeId> nextTradeId_;
-
     std::unordered_map<Symbol, std::unique_ptr<OrderBook>> books_;
-    std::unordered_map<OrderId, OrderBook*> orders_;
+    std::unordered_map<OrderId, OrderBook *> orders_;
 
-    MatchResult FillOrder(Order& order, OrderBook& book);
-    SubmitResult SubmitOrderInternal(Symbol symbol, OrderId id, Price price, Quantity quantity, Side side, OrderType type, TypeInForce tif);
-
+    MatchResult FillOrder(Order &order, OrderBook &book);
+    SubmitResult SubmitOrderInternal(Symbol symbol, OrderId id, Price price,
+                                     Quantity quantity, Side side,
+                                     OrderType type, TypeInForce tif);
     static OrderId nextOrderId();
     static TradeId nextTradeId();
+    Logger logger_;
 };
