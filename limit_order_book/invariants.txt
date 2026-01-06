@@ -1,0 +1,15 @@
+OrderBook Invariants
+- OrderLookup_ is the complete source of truth for existence of orders and their location
+  - if something doesn't exist in orderLookup_, then it doesn't exist in the book and vice versa
+  - bestBid < bestAsk ALWAYS after any operation, otherwise a match can be made
+  - Orders are unique and cannot exist in two places
+  - Quantities and Prices can never be negative (they can be negative for keys stored in the skiplist, but
+  for their actual values in the price levels, they can never be negative)
+  - Book is always sorted, asks by ascending order, and bids by descending order
+  - Orders are immutable except for decreasing quantity
+
+
+PriceLevel Integrity:
+- Pricelevel.totalQuantity() = sum(PriceLevel.orders.quantity)
+- PriceLevel.Size() = len(PriceLevel.orders)
+

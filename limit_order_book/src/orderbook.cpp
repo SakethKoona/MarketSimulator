@@ -102,8 +102,9 @@ OrderResult PriceLevel::RemoveOrder(OrderIterator orderIt) {
 }
 
 ModifyResult PriceLevel::ModifyOrder(OrderIterator &orderIt, Quantity newQty) {
-    if (newQty > orderIt->quantity)
+    if (newQty > orderIt->quantity) {
         return ModifyResult::QtyIncreaseNotAllowed;
+    }
     Quantity diff = orderIt->quantity - newQty;
     totalQuantity -= diff;
     orderIt->quantity = newQty;
@@ -174,7 +175,7 @@ OrderResult OrderBook::AddOrder(const Order &order) {
 /// @param id Id of the order we want to cancel
 /// @return OrderResult: an error code struct representing what happenned with
 /// the order
-OrderResult OrderBook::CancelOrder(OrderId id) {
+OrderResult OrderBook::CancelOrder(const OrderId &id) {
     auto it = orderLookup_.find(id);
     if (it == orderLookup_.end())
         return OrderResult::OrderNotFound;
@@ -246,7 +247,7 @@ const PriceLevel *OrderBook::bestBid() const {
 /* ============================================================
    DISPLAY (L3, FORWARD ONLY)
    ============================================================ */
-
+// This function is most likely unnecessary
 bool isDarkMode() {
     const char *colorterm = std::getenv("COLORFG");
     if (colorterm && std::string(colorterm) == "light") {

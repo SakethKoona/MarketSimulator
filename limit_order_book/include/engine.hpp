@@ -69,8 +69,8 @@ class MatchingEngine {
     std::unordered_map<OrderId, OrderBook *> orders_;
 
     MatchResult FillOrder(Order &order, OrderBook &book);
-    SubmitResult SubmitOrderInternal(Symbol symbol, OrderId id, Price price,
-                                     Quantity quantity, Side side,
+    SubmitResult SubmitOrderInternal(const Symbol &symbol, OrderId id,
+                                     Price price, Quantity quantity, Side side,
                                      OrderType type, TypeInForce tif);
     static OrderId nextOrderId();
     static TradeId nextTradeId();

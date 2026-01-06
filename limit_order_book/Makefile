@@ -62,5 +62,9 @@ rebuild: clean all
 debug: CXXFLAGS += -g -DDEBUG
 debug: clean all
 
+clear:
+	rm -rf logs
+	@echo "Cleared All Logs"
+
 .PHONY: all clean run rebuild debug directories
 

@@ -32,19 +32,16 @@ MatchingEngine::MatchingEngine() : logger_(generateLogFilename()) {
     std::ifstream file("../configs/default.json");
     json data = json::parse(file);
 
-    // Go through all the symbols and create an orderbook for each one
-    // Optional TODO: If we specify any orders already in the orderbook through
-    // the JSON config We can load in the orderbooks with those orders
-    // specifically
     json valid_symbols = data["symbols"];
     for (auto &[stock, params] : valid_symbols.items()) {
         books_.emplace(stock, std::make_unique<OrderBook>(stock));
     }
 }
 
-SubmitResult MatchingEngine::SubmitOrderInternal(Symbol symbol, OrderId id,
-                                                 Price price, Quantity quantity,
-                                                 Side side, OrderType type,
+SubmitResult MatchingEngine::SubmitOrderInternal(const Symbol &symbol,
+                                                 OrderId id, Price price,
+                                                 Quantity quantity, Side side,
+                                                 OrderType type,
                                                  TypeInForce tif) {
     logger_.log(
         Level::INFO,
@@ -242,7 +239,7 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         OrderType newType = resting->order->orderType;
         TypeInForce newTif = resting->order->typeInForce;
 
-        // TODO: This is dangerous when we make this multithreaded
+        // WARN: This is dangerous when we make this multithreaded
         //  because for a brief time, the order doesn't exist
         //  so when we add concurrency, we might need to make both of
         //  these operations atomic
