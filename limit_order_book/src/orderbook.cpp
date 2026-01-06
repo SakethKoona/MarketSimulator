@@ -335,7 +335,7 @@ void OrderBook::Display() {
 void OrderBook::L2Snapshot() {
     bool darkMode = isDarkMode();
 
-    std::string askColor = darkMode ? COLORS::red : COLORS::red;
+    std::string askColor = darkMode ? COLORS::magenta : COLORS::red;
     std::string bidColor = darkMode ? COLORS::green : COLORS::green;
     std::string priceColor = darkMode ? COLORS::yellow : COLORS::magenta;
 

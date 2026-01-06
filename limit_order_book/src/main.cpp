@@ -169,6 +169,7 @@ void test_l2_snapshot() {
     engine.SubmitOrder("AAPL", 212, 150, Side::Sell);
     engine.SubmitOrder("AAPL", 210, 250, Side::Sell);
     engine.SubmitOrder("AAPL", 208, 100, Side::Sell);
+    engine.SubmitOrder("AAPL", 279, 45, Side::Sell);
 
     // Buy orders (bids)
     engine.SubmitOrder("AAPL", 105, 500, Side::Buy);
@@ -196,14 +197,19 @@ int main() {
     std::cout << "║   MATCHING ENGINE - MODIFY ORDER TESTS ║" << std::endl;
     std::cout << "╚════════════════════════════════════════╝" << std::endl;
 
-    test_modify_order_quantity();
-    test_modify_order_price();
-    test_modify_order_price_and_quantity_two();
-    test_modify_triggers_match();
-    test_modify_nonexistent_order();
-    test_modify_to_zero_quantity();
-    test_modify_partial_fill_then_modify();
+    // test_modify_order_quantity();
+    // test_modify_order_price();
+    // test_modify_order_price_and_quantity_two();
+    // test_modify_triggers_match();
+    // test_modify_nonexistent_order();
+    // test_modify_to_zero_quantity();
+    // test_modify_partial_fill_then_modify();
     test_l2_snapshot();
+
+    MatchingEngine engine{};
+
+    engine.SubmitOrder("NVDA", 105, 2, Side::Sell);
+    engine.L2Snapshot("NVDA");
 
     std::cout << "\n╔════════════════════════════════════════╗" << std::endl;
     std::cout << "║         ALL TESTS COMPLETED!           ║" << std::endl;

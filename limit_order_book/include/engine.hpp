@@ -1,7 +1,8 @@
-#include "orderbook.hpp"
-#include "nlohmann/json.hpp"
 #include "logger.hpp"
+#include "nlohmann/json.hpp"
+#include "orderbook.hpp"
 #include <atomic>
+#include <string>
 
 using Symbol = std::string;
 
@@ -45,6 +46,9 @@ struct SubmitResult {
 
 class MatchingEngine {
   public:
+    // public members
+    std::string name;
+
     // Constructor
     MatchingEngine();
 
