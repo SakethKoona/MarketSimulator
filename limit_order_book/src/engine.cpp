@@ -227,7 +227,6 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
 
     if (resting == nullptr)
         return EngineResult::OrderNotFound;
-
     // Then, there are two main cases
     // If only the quantity changed to something lower, then we can just call
     // the orderbook's modify function

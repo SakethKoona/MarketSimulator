@@ -41,7 +41,7 @@ template <typename Key, typename Value> struct SkipListNode {
 template <typename Key, typename Value> class SkipList {
   public:
     SkipList(float p)
-        : p(p), length(0), tail(nullptr), allocator_(1024 * 1024),
+        : p(p), length_(0), tail(nullptr), allocator_(1024 * 1024),
           pool_(allocator_) {
         this->head_ptr = pool_.allocate(Key{}, Value{}, MAX_HEIGHT);
     }
@@ -86,6 +86,13 @@ template <typename Key, typename Value> class SkipList {
     }
 
     SkipListNode<Key, Value> *insertOrGet(const Key &key) {
+        // First, we look in the hashmap, if so, we just return that for O(1)
+        // search
+        auto it = nodeLookup_.find(key);
+        if (it != nodeLookup_.end()) {
+            return it->second;
+        }
+
         auto *current = head_ptr;
 
         SkipListNode<Key, Value> *stopping_points[MAX_HEIGHT] = {nullptr};
@@ -100,10 +107,11 @@ template <typename Key, typename Value> class SkipList {
             stopping_points[level] = current;
         }
 
-        current = current->forward[0];
-        if (current != nullptr && current->key == key) {
-            return current; // If we found it, return it
-        }
+        // This was commented because we now have a hashmap for O(1) get
+        // current = current->forward[0];
+        // if (current != nullptr && current->key == key) {
+        //     return current; // If we found it, return it
+        // }
 
         int lvl = getRandomLevel();
         Value value{}; // Value is initially empty
@@ -123,11 +131,11 @@ template <typename Key, typename Value> class SkipList {
             tail = newNode;
         }
 
-        this->length++;
+        this->length_++;
         return newNode;
     }
 
-    int len() { return this->length; }
+    int len() { return this->length_; }
     SkipListNode<Key, Value> *getMax() { return tail; }
 
     SkipListNode<Key, Value> *GetHead() const { return head_ptr->forward[0]; }
@@ -149,9 +157,7 @@ template <typename Key, typename Value> class SkipList {
         if (target && target->key == key) {
             // Before we rewire, let's reassign the tail if needed
             if (target->forward[0] == nullptr) {
-                tail =
-                    update[0]; // The new tail becomes the next biggest one
-                               // because the current biggest is getting deleted
+                tail = (len() == 1) ? nullptr : update[0];
             }
 
             for (int i = 0; i < MAX_HEIGHT; i++) {
@@ -159,13 +165,14 @@ template <typename Key, typename Value> class SkipList {
                     update[i]->forward[i] = target->forward[i];
                 }
             }
-        } else { // We don't return anything, cause the node to delete doesn't
-                 // exist
+
+            nodeLookup_.erase(key);
+        } else { // Node to delete doesn't exist
             return false;
         }
 
         pool_.deallocate(target);
-        length--;
+        length_--;
         return true;
     }
 
@@ -182,10 +189,11 @@ template <typename Key, typename Value> class SkipList {
     }
 
   private:
-    int length;
+    int length_;
     SkipListNode<Key, Value> *tail;
     ArenaAllocator allocator_;
     ArenaPool<SkipListNode<Key, Value>> pool_;
+    std::unordered_map<Key, SkipListNode<Key, Value> *> nodeLookup_;
 
     int getRandomLevel() {
         int rand_level = 0;
