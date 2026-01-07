@@ -271,6 +271,11 @@ bool isDarkMode() {
     return true;
 }
 
+const OrderInfo *OrderBook::FindOrder(OrderId id) {
+    auto it = orderLookup_.find(id);
+    return (it == orderLookup_.end()) ? nullptr : &it->second;
+}
+
 void OrderBook::Display() {
     bool darkMode = isDarkMode();
 
@@ -428,9 +433,4 @@ void OrderBook::L2Snapshot() {
     }
 
     std::cout << "\n";
-}
-
-const OrderInfo *OrderBook::FindOrder(OrderId id) {
-    auto it = orderLookup_.find(id);
-    return (it == orderLookup_.end()) ? nullptr : &it->second;
 }
