@@ -13,3 +13,8 @@ PriceLevel Integrity:
 - Pricelevel.totalQuantity() = sum(PriceLevel.orders.quantity)
 - PriceLevel.Size() = len(PriceLevel.orders)
 
+
+Next, we need to make these tests something more mechanical and directly testable, some are already there,
+but others we can refine more.
+
+
