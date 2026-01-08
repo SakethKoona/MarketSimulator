@@ -11,11 +11,19 @@ struct IEventSink {
 
 template <typename T> class RingBuffer {
   public:
-    RingBuffer<T>(std::size_t buffer_size) : size_(buffer_size) {}
+    RingBuffer(std::size_t buffer_size) : size_(buffer_size) {}
+    ~RingBuffer() { delete[] buffer; }
+
+    bool push(const T &msg) {}
+    bool read() {}
+    bool peek() {}
+
+    std::size_t len() {}
 
   private:
-    T *writePtr_;
-    T *readPtr_;
+    T *buffer;
+    std::size_t writeOffset_;
+    std::size_t readOffset_;
     std::size_t size_;
 };
 
