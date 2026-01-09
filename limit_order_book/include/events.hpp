@@ -3,8 +3,17 @@
 
 #include <cstddef>
 #include <cstdlib>
-#include <iostream>
-struct Event {};
+
+enum class EventType {
+    OrderAdded,
+    OrderModified,
+    OrderCanceled,
+    TradeExecuted,
+};
+
+struct Event {
+    EventType type;
+};
 
 struct IEventSink {
     virtual void emit(const Event &e) noexcept = 0;
@@ -21,17 +30,25 @@ template <typename T> class RingBuffer {
     }
     ~RingBuffer() { free(buffer); }
 
+    // NOTE: In current design, messages can be
+    // overwritten, which is fast, in the future, we might need
+    // to make that more safe
     T *push(const T &msg) {
         *(buffer + writeOffset_) = msg;
         T *ptr = (buffer + writeOffset_);
-        writeOffset_++;
-        return &msg;
+        writeOffset_ = (writeOffset_ + 1) % size_;
+        return ptr;
     }
 
-    bool read() {}
-    bool peek() {}
+    T *pop() {
+        if (writeOffset_ == readOffset_)
+            return nullptr;
+        T *msgPtr = (buffer + readOffset_);
+        readOffset_ = (readOffset_ + 1) % size_;
+        return msgPtr;
+    }
 
-    std::size_t len() {}
+    bool peek() {}
 
   private:
     T *buffer;
@@ -42,11 +59,8 @@ template <typename T> class RingBuffer {
 
 class EventSink : IEventSink {
   public:
-    void emit(const Event &e) noexcept {
-
-        int x = 5;
-        int y = 2;
-    }
+    void emit(const Event &e) noexcept { buffer_.push(e); }
+    Event *consume() { return buffer_.pop(); }
 
   private:
     RingBuffer<Event> buffer_;
