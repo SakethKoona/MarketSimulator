@@ -143,9 +143,7 @@ OrderResult OrderBook::AddOrder(const Order &order) {
     // WARN: Small issue here to fix later we set price even if we get an
     // existing price level And apparently that might break invariants in the
     // future, so something to watch out for
-    //
-    //
-    // TODO: Is this really O(1) if we have an already existing price level
+
     if (order.quantity <= 0)
         return OrderResult::InvalidQty;
 
