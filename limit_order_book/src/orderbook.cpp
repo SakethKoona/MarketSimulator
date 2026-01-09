@@ -145,8 +145,7 @@ OrderResult OrderBook::AddOrder(const Order &order) {
     if (order.quantity <= 0)
         return OrderResult::InvalidQty;
 
-    auto it = orderLookup_.find(order.orderId);
-    if (it != orderLookup_.end())
+    if (orderLookup_.find(order.orderId) != orderLookup_.end())
         return OrderResult::DuplicateOrder;
 
     // Checks have passed do the actual inserting
@@ -155,7 +154,6 @@ OrderResult OrderBook::AddOrder(const Order &order) {
 
     auto *priceLevel = book.insertOrGet(priceKey);
     priceLevel->value.SetPrice(order.price);
-
     auto insertResult = priceLevel->value.AddOrder(order);
 
     OrderInfo entryInfo = OrderInfo{};

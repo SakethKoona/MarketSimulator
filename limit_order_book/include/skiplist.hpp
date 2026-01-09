@@ -90,13 +90,10 @@ template <typename Key, typename Value> class SkipList {
         // First, we look in the hashmap, if so, we just return that for O(1)
         auto it = nodeLookup_.find(key);
         if (it != nodeLookup_.end()) {
-            std::cout << "We found an already existing level: " << key
-                      << std::endl;
             return it->second;
         }
 
         auto *current = head_ptr;
-
         SkipListNode<Key, Value> *stopping_points[MAX_HEIGHT] = {nullptr};
 
         // First, we do a similar traversal like in search, keeping track of
@@ -113,22 +110,25 @@ template <typename Key, typename Value> class SkipList {
         Value value{}; // Value is initially empty
 
         // Actually create the newNode
-        auto *newNode = pool_.allocate(key, value, static_cast<uint16_t>(lvl));
+        auto *newNodePtr =
+            pool_.allocate(key, value, static_cast<uint16_t>(lvl));
 
         // After we get the random level, we now run through the loop again
         // and insert it where it should be
         for (int i = 0; i <= lvl; i++) {
-            newNode->forward[i] = stopping_points[i]->forward[i];
-            stopping_points[i]->forward[i] = newNode;
+            newNodePtr->forward[i] = stopping_points[i]->forward[i];
+            stopping_points[i]->forward[i] = newNodePtr;
         }
 
-        if (newNode->forward[0] ==
+        nodeLookup_.emplace(key, newNodePtr);
+
+        if (newNodePtr->forward[0] ==
             nullptr) { // This means that we are at the end, (the max value)
-            tail = newNode;
+            tail = newNodePtr;
         }
 
         this->length_++;
-        return newNode;
+        return newNodePtr;
     }
 
     int len() { return this->length_; }
