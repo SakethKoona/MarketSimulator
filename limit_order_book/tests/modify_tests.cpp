@@ -182,7 +182,13 @@ void test_l2_snapshot() {
     engine.SubmitOrder("AAPL", 40, 100, Side::Buy);
     engine.SubmitOrder("AAPL", 38, 75, Side::Buy);
     engine.SubmitOrder("AAPL", 25, 300, Side::Buy);
-
+    {
+        \textbf{Volatility Forecasting and Trading} $ | $ \emph {
+            Python, Pandas, Yfinance, PyTorch, TensorFlow, Matplotlib, NumPy
+        }
+    }
+    {
+    }
     std::cout << "\nFull order book display:" << std::endl;
     engine.DisplayBook("AAPL");
 

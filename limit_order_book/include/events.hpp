@@ -2,6 +2,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdlib>
+#include <iostream>
 struct Event {};
 
 struct IEventSink {
@@ -11,10 +13,21 @@ struct IEventSink {
 
 template <typename T> class RingBuffer {
   public:
-    RingBuffer(std::size_t buffer_size) : size_(buffer_size) {}
-    ~RingBuffer() { delete[] buffer; }
+    RingBuffer(std::size_t buffer_size)
+        : size_(buffer_size), writeOffset_(0), readOffset_(0) {
 
-    bool push(const T &msg) {}
+        // Initialize the buffer, and allocate memory
+        buffer = (T *)malloc(size_ * sizeof(T));
+    }
+    ~RingBuffer() { free(buffer); }
+
+    T *push(const T &msg) {
+        *(buffer + writeOffset_) = msg;
+        T *ptr = (buffer + writeOffset_);
+        writeOffset_++;
+        return &msg;
+    }
+
     bool read() {}
     bool peek() {}
 
