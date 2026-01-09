@@ -1,4 +1,5 @@
 #include "engine.hpp"
+#include "events.hpp"
 #include <fstream>
 #include <string>
 
@@ -27,7 +28,8 @@ static std::string generateLogFilename() {
     return filename;
 }
 
-MatchingEngine::MatchingEngine() : logger_(generateLogFilename()) {
+MatchingEngine::MatchingEngine(EventSink &sink)
+    : logger_(generateLogFilename()), sink_(sink) {
     // Reads everything from the configs
     std::ifstream file("../configs/default.json");
     json data = json::parse(file);
@@ -125,16 +127,12 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
             (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
 
         if (price_level == nullptr) {
-            // std::cout << "Book was empty, 0 price levels" << &incoming <<
-            // std::endl;
             res.error_code = EngineResult::NotEnoughLiquidity;
             break;
         }; // Nothing to match, book was empty
 
         auto &resting =
             price_level->orders.front(); // Time priority, so we get fifo order
-        Quantity adjustment = std::min(incoming.quantity, resting.quantity);
-        Price exec_price = resting.price;
 
         // Early exit condition for limit orders
         if (incoming.orderType == OrderType::LIMIT &&
@@ -142,6 +140,9 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
                                    incoming.side)) {
             break;
         }
+
+        Quantity adjustment = std::min(incoming.quantity, resting.quantity);
+        Price exec_price = resting.price;
 
         // Actual trade happenning in the order book
         Timestamp currentTime =
@@ -181,8 +182,8 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
         res.trades.push_back(trade);
     }
 
-    // For GTC partial fills, we add them to the book, for all other types, we
-    // don't have to add anything yet.
+    // For GTC partial fills, we add them to the book, for all other types,
+    // we don't have to add anything yet.
     if (incoming.typeInForce == TypeInForce::GTC) {
         if (incoming.quantity > 0 && incoming.orderType == OrderType::LIMIT) {
             book.AddOrder(incoming);
@@ -195,8 +196,8 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
 }
 
 EngineResult MatchingEngine::CancelOrder(OrderId id) {
-    // First, we search the order lookup in the engine to 1. get the engine, and
-    // also to check if the order was even processed
+    // First, we search the order lookup in the engine to 1. get the engine,
+    // and also to check if the order was even processed
     auto it = orders_.find(id);
     if (it == orders_.end()) {
         return EngineResult::OrderNotFound;
@@ -228,8 +229,8 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
     if (resting == nullptr)
         return EngineResult::OrderNotFound;
     // Then, there are two main cases
-    // If only the quantity changed to something lower, then we can just call
-    // the orderbook's modify function
+    // If only the quantity changed to something lower, then we can just
+    // call the orderbook's modify function
     if (newPrice || newQty > resting->order->quantity) {
         // We cancel and create
         Price oldPrice = resting->order->price;

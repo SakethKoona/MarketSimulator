@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
+#include <unordered_map>
 
 #define MAX_HEIGHT 16
 
@@ -87,9 +88,10 @@ template <typename Key, typename Value> class SkipList {
 
     SkipListNode<Key, Value> *insertOrGet(const Key &key) {
         // First, we look in the hashmap, if so, we just return that for O(1)
-        // search
         auto it = nodeLookup_.find(key);
         if (it != nodeLookup_.end()) {
+            std::cout << "We found an already existing level: " << key
+                      << std::endl;
             return it->second;
         }
 
@@ -106,12 +108,6 @@ template <typename Key, typename Value> class SkipList {
             }
             stopping_points[level] = current;
         }
-
-        // This was commented because we now have a hashmap for O(1) get
-        // current = current->forward[0];
-        // if (current != nullptr && current->key == key) {
-        //     return current; // If we found it, return it
-        // }
 
         int lvl = getRandomLevel();
         Value value{}; // Value is initially empty

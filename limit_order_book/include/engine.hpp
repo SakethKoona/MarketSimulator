@@ -1,3 +1,4 @@
+#include "events.hpp"
 #include "logger.hpp"
 #include "nlohmann/json.hpp"
 #include "orderbook.hpp"
@@ -50,7 +51,7 @@ class MatchingEngine {
     std::string name;
 
     // Constructor
-    MatchingEngine();
+    MatchingEngine(EventSink &sink);
 
     // API's
     SubmitResult SubmitOrder(Symbol symbol, Price price, Quantity quantity,
@@ -75,4 +76,5 @@ class MatchingEngine {
     static OrderId nextOrderId();
     static TradeId nextTradeId();
     Logger logger_;
+    EventSink sink_;
 };

@@ -28,7 +28,7 @@ template <typename T> class RingBuffer {
         // Initialize the buffer, and allocate memory
         buffer = (T *)malloc(size_ * sizeof(T));
     }
-    ~RingBuffer() { free(buffer); }
+    // ~RingBuffer() { free(buffer); }
 
     // NOTE: In current design, messages can be
     // overwritten, which is fast, in the future, we might need
@@ -52,13 +52,15 @@ template <typename T> class RingBuffer {
 
   private:
     T *buffer;
+    std::size_t size_;
     std::size_t writeOffset_;
     std::size_t readOffset_;
-    std::size_t size_;
 };
 
 class EventSink : IEventSink {
   public:
+    EventSink(std::size_t buffer_size) : buffer_(buffer_size) {}
+
     void emit(const Event &e) noexcept { buffer_.push(e); }
     Event *consume() { return buffer_.pop(); }
 
