@@ -45,6 +45,14 @@ struct OrderRepalceEvent {
 struct Event {
     EventType type;
     Timestamp timeGenerated;
+
+    union {
+        AddOrderEvent add_event;
+        PartialCancelOrderEvent partial_cancel;
+        DeleteOrderEvent delete_event;
+        OrderExecutedEvent order_executed;
+        OrderRepalceEvent order_replace;
+    };
 };
 
 struct IEventSink {
