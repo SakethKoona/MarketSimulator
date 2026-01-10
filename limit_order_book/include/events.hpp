@@ -13,33 +13,38 @@ enum class EventType {
     OrderSubmitted,
 };
 
-struct AddEvent {
+struct AddOrderEvent {
+    OrderRefNumber ref_number;
     Price price;
     Quantity qty;
     Side side;
 };
 
-struct CancelEvent {
-    Price price;
-    Quantity qty;
-    Side side;
+struct DeleteOrderEvent {
+    OrderRefNumber ref_number;
 };
 
-struct ModifyEvent {
+struct PartialCancelOrderEvent {
+    OrderRefNumber ref_number;
+    Quantity newQty;
+};
+
+struct OrderExecutedEvent {
+    OrderRefNumber ref_number;
+    Quantity executed_qty;
+    MatchNumber match_num;
+};
+
+struct OrderRepalceEvent {
+    OrderRefNumber old_ref_number;
+    OrderRefNumber new_ref_number;
+    Quantity qty;
     Price price;
-    Quantity oldQty;
-    Quantity newqty;
-    Side side;
 };
 
 struct Event {
     EventType type;
     Timestamp timeGenerated;
-    union {
-        AddEvent add;
-        CancelEvent cancel;
-        ModifyEvent mod;
-    };
 };
 
 struct IEventSink {
