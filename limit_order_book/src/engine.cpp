@@ -228,9 +228,8 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
 
     if (resting == nullptr)
         return EngineResult::OrderNotFound;
-    // Then, there are two main cases
-    // If only the quantity changed to something lower, then we can just
-    // call the orderbook's modify function
+
+    // Case 1: changce price OR higher quantity
     if (newPrice || newQty > resting->order->quantity) {
         // We cancel and create
         Price oldPrice = resting->order->price;
@@ -239,10 +238,7 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         OrderType newType = resting->order->orderType;
         TypeInForce newTif = resting->order->typeInForce;
 
-        // WARN: This is dangerous when we make this multithreaded
-        //  because for a brief time, the order doesn't exist
-        //  so when we add concurrency, we might need to make both of
-        //  these operations atomic
+        // WARN: Dangerous if multithreaded, make this atomic
         CancelOrder(resting->order->orderId);
         SubmitOrderInternal(book.symbol, newId, newPrice.value_or(oldPrice),
                             newQty, newSide, newType, newTif);

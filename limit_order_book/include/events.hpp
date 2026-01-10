@@ -1,18 +1,45 @@
-
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
+#include <types.hpp>
 
 enum class EventType {
     OrderAdded,
     OrderModified,
     OrderCanceled,
     TradeExecuted,
+    OrderSubmitted,
+};
+
+struct AddEvent {
+    Price price;
+    Quantity qty;
+    Side side;
+};
+
+struct CancelEvent {
+    Price price;
+    Quantity qty;
+    Side side;
+};
+
+struct ModifyEvent {
+    Price price;
+    Quantity oldQty;
+    Quantity newqty;
+    Side side;
 };
 
 struct Event {
     EventType type;
+    Timestamp timeGenerated;
+    union {
+        AddEvent add;
+        CancelEvent cancel;
+        ModifyEvent mod;
+    };
 };
 
 struct IEventSink {
@@ -20,6 +47,7 @@ struct IEventSink {
     virtual ~IEventSink() = default;
 };
 
+// TODO: Make this lock free
 template <typename T> class RingBuffer {
   public:
     RingBuffer(std::size_t buffer_size)
@@ -30,7 +58,7 @@ template <typename T> class RingBuffer {
     }
     // ~RingBuffer() { free(buffer); }
 
-    // NOTE: In current design, messages can be
+    // In current design, messages can be
     // overwritten, which is fast, in the future, we might need
     // to make that more safe
     T *push(const T &msg) {
@@ -41,7 +69,7 @@ template <typename T> class RingBuffer {
     }
 
     T *pop() {
-        if (writeOffset_ == readOffset_)
+        if (writeOffset_ == readOffset_) // Empty buffer
             return nullptr;
         T *msgPtr = (buffer + readOffset_);
         readOffset_ = (readOffset_ + 1) % size_;
