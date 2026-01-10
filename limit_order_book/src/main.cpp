@@ -32,7 +32,6 @@ void test_l2_snapshot() {
     std::cout << "\n=== TEST: L2 Snapshot ===" << std::endl;
 
     EventSink test_sink(1024 * 1024);
-
     MatchingEngine engine{test_sink};
 
     // Sell orders (asks)

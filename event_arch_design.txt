@@ -43,3 +43,7 @@ OrderReplace Message:
 
 
 Trade Messages:
+
+TradeEvent
+ - This happens whenever a trade occurs with something not in the orderbook,
+  - so stuff like modify orders, ioc, or incoming orders
