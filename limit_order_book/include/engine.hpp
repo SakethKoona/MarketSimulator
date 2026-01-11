@@ -3,9 +3,13 @@
 #include "nlohmann/json.hpp"
 #include "orderbook.hpp"
 #include <atomic>
+#include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 using Symbol = std::string;
+using SymbolId = uint64_t;
 
 enum class EngineResult {
     Success,

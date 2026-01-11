@@ -14,6 +14,7 @@ enum class EventType {
 };
 
 struct AddOrderEvent {
+    std::string symbol;
     OrderRefNumber ref_number;
     Price price;
     Quantity qty;
@@ -21,25 +22,38 @@ struct AddOrderEvent {
 };
 
 struct DeleteOrderEvent {
+    std::string symbol;
     OrderRefNumber ref_number;
 };
 
 struct PartialCancelOrderEvent {
+    std::string symbol;
     OrderRefNumber ref_number;
     Quantity newQty;
 };
 
 struct OrderExecutedEvent {
     OrderRefNumber ref_number;
+    std::string symbol;
     Quantity executed_qty;
     MatchNumber match_num;
 };
 
 struct OrderRepalceEvent {
     OrderRefNumber old_ref_number;
+    std::string symbol;
     OrderRefNumber new_ref_number;
     Quantity qty;
     Price price;
+};
+
+struct TradeEvent {
+    OrderRefNumber ref_number;
+    std::string symbol;
+    Price price;
+    Quantity qty;
+    Side side;
+    MatchNumber match_num;
 };
 
 struct Event {
@@ -52,6 +66,7 @@ struct Event {
         DeleteOrderEvent delete_event;
         OrderExecutedEvent order_executed;
         OrderRepalceEvent order_replace;
+        TradeEvent trade;
     };
 };
 

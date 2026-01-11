@@ -24,7 +24,6 @@
 //
 
 #include "engine.hpp"
-#include "events.hpp"
 #include <cassert>
 #include <iostream>
 

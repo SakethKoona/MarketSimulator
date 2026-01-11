@@ -47,3 +47,7 @@ Trade Messages:
 TradeEvent
  - This happens whenever a trade occurs with something not in the orderbook,
   - so stuff like modify orders, ioc, or incoming orders
+
+ - contains:
+    - order reference number, side, qty, symbol, price, match reference number
+    - Although ITCH contains a reference number field for the trade event, it is always 0 for this event
