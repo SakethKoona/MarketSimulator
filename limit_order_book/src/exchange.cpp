@@ -1,4 +1,3 @@
-
 #include "exchange.hpp"
 #include "events.hpp"
 #include <fstream>
@@ -17,7 +16,7 @@ Exchange::Exchange() {
     }
 
     // Init the engine
-    auto sink_size = data["sink_size"].get<int>();
+    auto sink_size = data["sink_size"].get<std::size_t>();
     EventSink sink = EventSink(sink_size);
     engine_ = MatchingEngine(sink);
 }

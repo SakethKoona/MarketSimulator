@@ -70,11 +70,6 @@ struct Event {
     };
 };
 
-struct IEventSink {
-    virtual void emit(const Event &e) noexcept = 0;
-    virtual ~IEventSink() = default;
-};
-
 // TODO: Make this lock free
 template <typename T> class RingBuffer {
   public:
@@ -113,7 +108,7 @@ template <typename T> class RingBuffer {
     std::size_t readOffset_;
 };
 
-class EventSink : IEventSink {
+class EventSink {
   public:
     EventSink(std::size_t buffer_size) : buffer_(buffer_size) {}
 
