@@ -1,5 +1,6 @@
 #include "engine.hpp"
 #include "events.hpp"
+#include <cstddef>
 #include <fstream>
 #include <string>
 
@@ -29,14 +30,12 @@ static std::string generateLogFilename() {
 }
 
 MatchingEngine::MatchingEngine(EventSink &sink)
-    : logger_(generateLogFilename()), sink_(sink) {
-    // Reads everything from the configs
-    std::ifstream file("../configs/default.json");
-    json data = json::parse(file);
+    : logger_(generateLogFilename()), sink_(sink) {}
 
-    json valid_symbols = data["symbols"];
-    for (auto &[stock, params] : valid_symbols.items()) {
-        books_.emplace(stock, std::make_unique<OrderBook>(stock));
+void MatchingEngine::InitBooks(std::size_t numSymbols) {
+    books_vec_.reserve(numSymbols);
+    for (std::size_t i = 0; i < numSymbols; i++) {
+        books_vec_[i] = std::make_unique<OrderBook>(i);
     }
 }
 

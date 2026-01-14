@@ -66,11 +66,13 @@ class MatchingEngine {
                              std::optional<Price> newPrice = std::nullopt);
     void DisplayBook(Symbol symbol);
     void L2Snapshot(Symbol symbol);
+    void InitBooks(std::size_t numSymbols);
 
   private:
     static std::atomic<OrderId> nextOrderId_;
     static std::atomic<TradeId> nextTradeId_;
     std::unordered_map<Symbol, std::unique_ptr<OrderBook>> books_;
+    std::vector<std::unique_ptr<OrderBook>> books_vec_;
     std::unordered_map<OrderId, OrderBook *> orders_;
 
     MatchResult FillOrder(Order &order, OrderBook &book);

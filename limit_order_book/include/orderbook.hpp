@@ -91,7 +91,7 @@ class OrderBook {
   public:
     std::string symbol;
     OrderBook();
-    explicit OrderBook(const std::string &sym);
+    explicit OrderBook(SymbolId sym_id);
 
     const Book &bids() const;
     const Book &asks() const;
