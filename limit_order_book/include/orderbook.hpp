@@ -3,6 +3,7 @@
 #include "errors.hpp"
 #include "events.hpp"
 #include "skiplist.hpp"
+#include "types.hpp"
 #include <chrono>
 #include <cstdint>
 #include <ctime>
@@ -91,9 +92,8 @@ class OrderBook {
     OrderBook &operator=(const OrderBook &) = delete;
 
   public:
-    std::string symbol;
+    SymbolId symId;
     OrderBook();
-    // TODO: Change this to SymbolId
     explicit OrderBook(uint64_t sym_id);
 
     const Book &bids() const;

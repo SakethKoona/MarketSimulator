@@ -33,7 +33,7 @@ using TradeId = uint64_t;
 
 struct Trade {
     TradeId id;
-    Symbol symbol;
+    SymbolId symId;
     Price price;
     Quantity quantity;
 
@@ -67,13 +67,12 @@ class MatchingEngine {
     EngineResult ModifyOrder(OrderId id, Quantity newQty,
                              std::optional<Price> newPrice = std::nullopt);
     void DisplayBook(SymbolId symId);
-    void L2Snapshot(Symbol symbol);
+    void L2Snapshot(SymbolId symId);
     void InitBooks(std::size_t numSymbols);
 
   private:
     static std::atomic<OrderId> nextOrderId_;
     static std::atomic<TradeId> nextTradeId_;
-    std::unordered_map<Symbol, std::unique_ptr<OrderBook>> books_;
     std::vector<std::unique_ptr<OrderBook>> books_vec_;
     std::unordered_map<OrderId, OrderBook *> orders_;
 

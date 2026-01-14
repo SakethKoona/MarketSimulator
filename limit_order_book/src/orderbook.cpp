@@ -1,4 +1,5 @@
 #include "../include/orderbook.hpp"
+#include "types.hpp"
 #include <iomanip>
 /* ============================================================
    TIMESTAMP HELPERS
@@ -131,17 +132,14 @@ std::ostream &operator<<(std::ostream &os, const PriceLevel &pl) {
    ORDER BOOK
    ============================================================ */
 
-OrderBook::OrderBook() : bids_(0.5), asks_(0.5), symbol("") {}
+OrderBook::OrderBook() : bids_(0.5), asks_(0.5), symId(-1) {}
 
-OrderBook::OrderBook(const std::string &sym)
-    : bids_(0.5), asks_(0.5), symbol(sym) {}
+OrderBook::OrderBook(SymbolId sym_id) : bids_(0.5), asks_(0.5), symId(sym_id) {}
 
 const Book &OrderBook::bids() const { return bids_; }
 const Book &OrderBook::asks() const { return asks_; }
 
 OrderResult OrderBook::AddOrder(const Order &order) {
-    // WARN: when we add orders to duplicate price levels, we
-    // create a new price level for some reason
     if (order.quantity <= 0)
         return OrderResult::InvalidQty;
 
@@ -282,7 +280,7 @@ void OrderBook::Display() {
     std::cout << "\n"
               << COLORS::bold << COLORS::cyan
               << "════════════════════════════════════════\n"
-              << "         ORDER BOOK: " << symbol << "\n"
+              << "         ORDER BOOK: " << symId << "\n"
               << "════════════════════════════════════════" << COLORS::reset
               << "\n";
 
@@ -365,11 +363,8 @@ void OrderBook::L2Snapshot() {
     // Header
     std::cout << "\n"
               << COLORS::bold << COLORS::cyan << "         ╔════════════════ "
-              << symbol << " L2 ════════════════╗" << COLORS::reset << "\n\n";
+              << symId << " L2 ════════════════╗" << COLORS::reset << "\n\n";
 
-    // Asks - lowest to highest
-    // std::cout << askColor << COLORS::bold << "ASKS:" << COLORS::reset <<
-    // "\n";
     askNode = asks_.GetHead();
     while (askNode) {
         const PriceLevel &level = askNode->value;
@@ -403,9 +398,6 @@ void OrderBook::L2Snapshot() {
                   << "┤ spread: " << spread << COLORS::reset << "\n";
     }
 
-    // Bids - highest to lowest
-    // std::cout << bidColor << COLORS::bold << "BIDS:" << COLORS::reset <<
-    // "\n";
     bidNode = bids_.GetHead();
     while (bidNode) {
         const PriceLevel &level = bidNode->value;

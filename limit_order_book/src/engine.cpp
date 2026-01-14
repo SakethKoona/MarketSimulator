@@ -164,7 +164,7 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
         };
 
         Trade trade{.id = MatchingEngine::nextTradeId(),
-                    .symbol = book.symbol,
+                    .symId = book.symId,
                     .price = exec_price,
                     .quantity = adjustment,
                     .aggressor = incoming_fill,
@@ -232,7 +232,7 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         // WARN: Dangerous if multithreaded, make this atomic
         // Also fix the symbol vs. symbolId issue
         CancelOrder(resting->order->orderId);
-        SubmitOrderInternal(book.symbol, newId, newPrice.value_or(oldPrice),
+        SubmitOrderInternal(book.symId, newId, newPrice.value_or(oldPrice),
                             newQty, newSide, newType, newTif);
     } else if (newQty < resting->order->quantity) {
         book.ModifyOrder(resting->order->orderId, newQty);
@@ -249,12 +249,11 @@ void MatchingEngine::DisplayBook(SymbolId symId) {
         throw std::runtime_error("Symbol Not Found");
     }
 }
-void MatchingEngine::L2Snapshot(Symbol symbol) {
-    auto it = books_.find(symbol);
-    if (it == books_.end()) {
-        throw std::runtime_error("Couldn't find symbol in book");
+void MatchingEngine::L2Snapshot(SymbolId symId) {
+    try {
+        auto &ob = books_vec_.at(symId);
+        ob->L2Snapshot();
+    } catch (std::out_of_range) {
+        throw std::runtime_error("Symbol Not Found");
     }
-
-    OrderBook &ob = *it->second.get();
-    ob.L2Snapshot();
 }
