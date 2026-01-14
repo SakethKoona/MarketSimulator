@@ -1,7 +1,10 @@
+#pragma once
+
 #include "events.hpp"
 #include "logger.hpp"
 #include "nlohmann/json.hpp"
 #include "orderbook.hpp"
+#include "types.hpp"
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -9,7 +12,6 @@
 #include <vector>
 
 using Symbol = std::string;
-using SymbolId = uint64_t;
 
 enum class EngineResult {
     Success,
@@ -58,13 +60,13 @@ class MatchingEngine {
     MatchingEngine(EventSink &sink);
 
     // API's
-    SubmitResult SubmitOrder(Symbol symbol, Price price, Quantity quantity,
+    SubmitResult SubmitOrder(SymbolId symId, Price price, Quantity quantity,
                              Side side, OrderType type = OrderType::LIMIT,
                              TypeInForce tif = TypeInForce::GTC);
     EngineResult CancelOrder(OrderId id);
     EngineResult ModifyOrder(OrderId id, Quantity newQty,
                              std::optional<Price> newPrice = std::nullopt);
-    void DisplayBook(Symbol symbol);
+    void DisplayBook(SymbolId symId);
     void L2Snapshot(Symbol symbol);
     void InitBooks(std::size_t numSymbols);
 
@@ -76,8 +78,8 @@ class MatchingEngine {
     std::unordered_map<OrderId, OrderBook *> orders_;
 
     MatchResult FillOrder(Order &order, OrderBook &book);
-    SubmitResult SubmitOrderInternal(const Symbol &symbol, OrderId id,
-                                     Price price, Quantity quantity, Side side,
+    SubmitResult SubmitOrderInternal(SymbolId symId, OrderId id, Price price,
+                                     Quantity quantity, Side side,
                                      OrderType type, TypeInForce tif);
     static OrderId nextOrderId();
     static TradeId nextTradeId();

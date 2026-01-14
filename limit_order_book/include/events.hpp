@@ -1,9 +1,9 @@
 #pragma once
 
+#include "types.hpp"
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
-#include <types.hpp>
 
 enum class EventType {
     OrderAdded,

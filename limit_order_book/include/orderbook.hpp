@@ -1,3 +1,5 @@
+#pragma once
+
 #include "errors.hpp"
 #include "events.hpp"
 #include "skiplist.hpp"
@@ -91,7 +93,8 @@ class OrderBook {
   public:
     std::string symbol;
     OrderBook();
-    explicit OrderBook(SymbolId sym_id);
+    // TODO: Change this to SymbolId
+    explicit OrderBook(uint64_t sym_id);
 
     const Book &bids() const;
     const Book &asks() const;

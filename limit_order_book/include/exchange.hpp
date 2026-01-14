@@ -1,4 +1,6 @@
 
+#pragma once
+
 #include "engine.hpp"
 #include <cstdint>
 #include <string>
@@ -9,7 +11,7 @@ using json = nlohmann::json;
 class Exchange {
   public:
     Exchange();
-    Exchange(const json& cfg);
+    Exchange(const json &cfg);
 
     // Exchange(const Exchange &) = default;
     // Exchange(Exchange &&) = default;

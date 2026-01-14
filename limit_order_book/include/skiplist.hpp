@@ -1,3 +1,5 @@
+#pragma once
+
 #include "arena.hpp"
 #include <cstdint>
 #include <cstdlib>

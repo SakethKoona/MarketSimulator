@@ -1,7 +1,9 @@
 #include "engine.hpp"
 #include "events.hpp"
+#include "types.hpp"
 #include <cstddef>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 
 using json = nlohmann::json;
@@ -39,36 +41,26 @@ void MatchingEngine::InitBooks(std::size_t numSymbols) {
     }
 }
 
-SubmitResult MatchingEngine::SubmitOrderInternal(const Symbol &symbol,
-                                                 OrderId id, Price price,
-                                                 Quantity quantity, Side side,
-                                                 OrderType type,
+SubmitResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
+                                                 Price price, Quantity quantity,
+                                                 Side side, OrderType type,
                                                  TypeInForce tif) {
-    logger_.log(
-        Level::INFO,
-        symbol + "Order Submitted: " + (side == Side::Buy ? "BUY" : "SELL") +
-            " " + std::to_string(quantity) + " @ " + std::to_string(price));
+    try {
+        auto &ob = *books_vec_.at(symId);
+        Order order = Order(id, price, quantity, type, tif, side);
 
-    auto it = books_.find(symbol);
-    if (it == books_.end()) {
+        MatchResult res = FillOrder(order, ob);
+        return {id, res};
+    } catch (std::out_of_range) {
         throw std::runtime_error("Symbol not found");
     }
-
-    // If we do find the symbol, then we get its orderbook
-    OrderBook &ob = *it->second.get();
-
-    // Create and package the order
-    Order order = Order(id, price, quantity, type, tif, side);
-
-    MatchResult res = FillOrder(order, ob);
-    return {id, res};
 }
 
-SubmitResult MatchingEngine::SubmitOrder(Symbol symbol, Price price,
+SubmitResult MatchingEngine::SubmitOrder(SymbolId symId, Price price,
                                          Quantity quantity, Side side,
                                          OrderType type, TypeInForce tif) {
     OrderId id = MatchingEngine::nextOrderId();
-    return SubmitOrderInternal(symbol, id, price, quantity, side, type, tif);
+    return SubmitOrderInternal(symId, id, price, quantity, side, type, tif);
 }
 
 OrderId MatchingEngine::nextOrderId() { return nextOrderId_++; }
@@ -238,6 +230,7 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         TypeInForce newTif = resting->order->typeInForce;
 
         // WARN: Dangerous if multithreaded, make this atomic
+        // Also fix the symbol vs. symbolId issue
         CancelOrder(resting->order->orderId);
         SubmitOrderInternal(book.symbol, newId, newPrice.value_or(oldPrice),
                             newQty, newSide, newType, newTif);
@@ -248,16 +241,14 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
     return EngineResult::Success;
 }
 
-void MatchingEngine::DisplayBook(Symbol symbol) {
-    auto it = books_.find(symbol);
-    if (it == books_.end()) {
-        throw std::runtime_error("Couldn't find symbol in book");
+void MatchingEngine::DisplayBook(SymbolId symId) {
+    try {
+        auto &ob = books_vec_.at(symId);
+        ob->Display();
+    } catch (std::out_of_range) {
+        throw std::runtime_error("Symbol Not Found");
     }
-
-    OrderBook &ob = *it->second.get();
-    ob.Display();
 }
-
 void MatchingEngine::L2Snapshot(Symbol symbol) {
     auto it = books_.find(symbol);
     if (it == books_.end()) {

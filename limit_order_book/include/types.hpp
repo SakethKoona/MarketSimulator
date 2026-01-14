@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cstdint>
 
 // OrderBook Types
@@ -10,3 +12,5 @@ enum Side { Buy, Sell };
 // Event Architecture Types
 using OrderRefNumber = uint64_t;
 using MatchNumber = uint64_t;
+
+using SymbolId = uint64_t;

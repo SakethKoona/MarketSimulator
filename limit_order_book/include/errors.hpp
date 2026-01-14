@@ -1,3 +1,5 @@
+#pragma once
+
 enum class OrderResult {
     Success,
     InvalidQty,
@@ -14,4 +16,3 @@ enum class ModifyResult {
     Rejected,
     QtyIncreaseNotAllowed
 };
-
