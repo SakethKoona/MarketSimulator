@@ -11,8 +11,6 @@
 #include <string>
 #include <vector>
 
-using Symbol = std::string;
-
 enum class EngineResult {
     Success,
     SymbolNotFound,

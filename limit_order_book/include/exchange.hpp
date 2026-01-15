@@ -22,9 +22,13 @@ class Exchange {
                              Side side, OrderType type = OrderType::LIMIT,
                              TypeInForce tif = TypeInForce::GTC);
 
+    EngineResult CancelOrder(OrderId id);
+    EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
+    void L2Snapshot(Symbol symbol);
+
   private:
     // stores conversion between a named symbol to the symbol id
-    std::unordered_map<std::string, SymbolId> stock_registry_;
+    std::unordered_map<Symbol, SymbolId> stock_registry_;
     EventSink sink_;
     MatchingEngine engine_;
 };

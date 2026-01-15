@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 // OrderBook Types
 using Timestamp = uint64_t;
@@ -14,3 +15,5 @@ using OrderRefNumber = uint64_t;
 using MatchNumber = uint64_t;
 
 using SymbolId = uint64_t;
+using Symbol = std::string;
+

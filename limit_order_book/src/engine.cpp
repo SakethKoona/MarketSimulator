@@ -174,7 +174,7 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
     }
 
     // For GTC partial fills, we add them to the book, for all other types,
-    // we don't have to add anything yet.
+    // we don't have to add anything.
     if (incoming.typeInForce == TypeInForce::GTC) {
         if (incoming.quantity > 0 && incoming.orderType == OrderType::LIMIT) {
             book.AddOrder(incoming);
@@ -230,7 +230,6 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         TypeInForce newTif = resting->order->typeInForce;
 
         // WARN: Dangerous if multithreaded, make this atomic
-        // Also fix the symbol vs. symbolId issue
         CancelOrder(resting->order->orderId);
         SubmitOrderInternal(book.symId, newId, newPrice.value_or(oldPrice),
                             newQty, newSide, newType, newTif);
