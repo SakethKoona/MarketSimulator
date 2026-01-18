@@ -1,7 +1,6 @@
 #pragma once
 
 #include "types.hpp"
-#include <chrono>
 #include <cstddef>
 #include <cstdlib>
 
@@ -22,26 +21,26 @@ struct AddOrderEvent {
 };
 
 struct DeleteOrderEvent {
-    std::string symbol;
+    SymbolId sym_id;
     OrderRefNumber ref_number;
 };
 
 struct PartialCancelOrderEvent {
-    std::string symbol;
+    SymbolId sym_id;
     OrderRefNumber ref_number;
     Quantity newQty;
 };
 
 struct OrderExecutedEvent {
     OrderRefNumber ref_number;
-    std::string symbol;
+    SymbolId sym_id;
     Quantity executed_qty;
     MatchNumber match_num;
 };
 
 struct OrderRepalceEvent {
     OrderRefNumber old_ref_number;
-    std::string symbol;
+    SymbolId sym_id;
     OrderRefNumber new_ref_number;
     Quantity qty;
     Price price;
@@ -49,7 +48,7 @@ struct OrderRepalceEvent {
 
 struct TradeEvent {
     OrderRefNumber ref_number;
-    std::string symbol;
+    SymbolId sym_id;
     Price price;
     Quantity qty;
     Side side;
@@ -60,14 +59,14 @@ struct Event {
     EventType type;
     Timestamp timeGenerated;
 
-    // union {
-    //     AddOrderEvent add_event;
-    //     PartialCancelOrderEvent partial_cancel;
-    //     DeleteOrderEvent delete_event;
-    //     OrderExecutedEvent order_executed;
-    //     OrderRepalceEvent order_replace;
-    //     TradeEvent trade;
-    // };
+    union {
+        AddOrderEvent add_event;
+        PartialCancelOrderEvent partial_cancel;
+        DeleteOrderEvent delete_event;
+        OrderExecutedEvent order_executed;
+        OrderRepalceEvent order_replace;
+        TradeEvent trade;
+    };
 };
 
 // TODO: Make this lock free

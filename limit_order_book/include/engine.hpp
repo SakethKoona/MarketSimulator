@@ -38,7 +38,8 @@ struct Trade {
     Fill aggressor;
     Fill resting;
 };
-
+// TODO: Clean up Error and result architecture before going into event
+// architecture
 struct MatchResult {
     std::vector<Trade> trades;
     EngineResult error_code;

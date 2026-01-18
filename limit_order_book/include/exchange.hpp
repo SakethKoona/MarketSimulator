@@ -2,6 +2,7 @@
 #pragma once
 
 #include "engine.hpp"
+#include "events.hpp"
 #include "orderbook.hpp"
 #include <cstdint>
 #include <string>
@@ -14,16 +15,13 @@ class Exchange {
     Exchange();
     Exchange(const json &cfg);
 
-    // Exchange(const Exchange &) = default;
-    // Exchange(Exchange &&) = default;
-    // Exchange &operator=(const Exchange &) = default;
-    // Exchange &operator=(Exchange &&) = default;
     SubmitResult SubmitOrder(Symbol symbol, Price price, Quantity qty,
                              Side side, OrderType type = OrderType::LIMIT,
                              TypeInForce tif = TypeInForce::GTC);
 
     EngineResult CancelOrder(OrderId id);
-    EngineResult ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice = std::nullopt);
+    EngineResult ModifyOrder(OrderId id, Quantity newQty,
+                             std::optional<Price> newPrice = std::nullopt);
     void L2Snapshot(Symbol symbol);
 
   private:

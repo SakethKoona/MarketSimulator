@@ -19,17 +19,8 @@ Exchange::Exchange(const json &cfg)
     SymbolId nextSymId = 0;
     json valid_sym = cfg["symbols"];
     for (auto &[stock, _] : valid_sym.items()) {
-        // stock_registry_.emplace(stock, nextSymId);
-        stock_registry_[stock] = nextSymId;
-        // std::cout << stock << nextSymId << std::endl;
-        nextSymId++;
+        stock_registry_.emplace(stock, nextSymId++);
     }
-
-    // for (const auto& [k, v] : stock_registry_) {
-    // std::cout << "addr=" << static_cast<const void*>(k.data())
-    //           << " val=" << k << std::endl;
-    // }
-
     // Next, we wanna pass nextSymId into the matching engine,
     // so that it can make and keep track of that many orderbooks
     // One option is we can have a function inside matching engine
@@ -40,18 +31,12 @@ Exchange::Exchange(const json &cfg)
 SubmitResult Exchange::SubmitOrder(Symbol symbol, Price price, Quantity qty,
                                    Side side, OrderType type, TypeInForce tif) {
 
-    // std::cout << "hash(map key) = " << std::hash<Symbol>{}(symbol) <<
-    // std::endl; for (const auto& [k, _] : stock_registry_) {
-    //     std::cout << "hash(stored key) = " << std::hash<Symbol>{}(k) << ","
-    //     << k << std::endl;
-    // }
-
     if (!stock_registry_.contains(symbol)) {
-        throw std::runtime_error("Symbol Not Found");
+        throw std::runtime_error("Symbol Not Found in Stock registry");
     }
 
     SymbolId sym_id = stock_registry_.at(symbol);
-    return engine_.SubmitOrder(sym_id, price, qty, side, type, tif);
+    SubmitResult res = engine_.SubmitOrder(sym_id, price, qty, side, type, tif);
 }
 
 EngineResult Exchange::CancelOrder(OrderId id) {
