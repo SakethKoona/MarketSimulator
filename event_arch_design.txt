@@ -3,6 +3,10 @@ Event Architecture
   - NOTE: ITCH has an order reference number, which I'm assuming is the OrderId, do we need to include that
 
 
+Initial messages:
+- I realize that in the events we will publish, the people will have no idea what id's correspond to what.
+- So at the beginning of each session, we'll send out some metadata including stock->id mappings
+
 
 - AddEvent: shows that an event was added to the orderbook
   - has price, qty, and side

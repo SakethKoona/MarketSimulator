@@ -35,9 +35,14 @@ MatchingEngine::MatchingEngine(EventSink &sink)
     : logger_(generateLogFilename()), sink_(sink) {}
 
 void MatchingEngine::InitBooks(std::size_t numSymbols) {
+    std::cout << "Init books has been called" << numSymbols << std::endl;
     books_vec_.reserve(numSymbols);
     for (std::size_t i = 0; i < numSymbols; i++) {
-        books_vec_[i] = std::make_unique<OrderBook>(i);
+        books_vec_.emplace_back(std::make_unique<OrderBook>(i));
+    }
+
+    for (auto& el : books_vec_) {
+        std::cout << "Element: " << el << std::endl;
     }
 }
 
@@ -47,12 +52,13 @@ SubmitResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
                                                  TypeInForce tif) {
     try {
         auto &ob = *books_vec_.at(symId);
+
         Order order = Order(id, price, quantity, type, tif, side);
 
         MatchResult res = FillOrder(order, ob);
         return {id, res};
     } catch (std::out_of_range) {
-        throw std::runtime_error("Symbol not found");
+        throw std::runtime_error("Symbol not found from matching engine");
     }
 }
 

@@ -6,7 +6,7 @@ CXX = clang++
 # =========================
 # Flags
 # =========================
-COMMON_FLAGS  = -std=c++23 -Wall -Wextra
+COMMON_FLAGS  = -std=c++20 -Wall -Wextra
 DEBUG_FLAGS   = $(COMMON_FLAGS) -O0 -g -DDEBUG
 RELEASE_FLAGS = $(COMMON_FLAGS) -O2
 

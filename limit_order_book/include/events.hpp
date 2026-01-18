@@ -14,7 +14,7 @@ enum class EventType {
 };
 
 struct AddOrderEvent {
-    std::string symbol;
+    SymbolId sym_id;
     OrderRefNumber ref_number;
     Price price;
     Quantity qty;

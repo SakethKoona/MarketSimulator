@@ -10,10 +10,8 @@ Exchange::Exchange()
     : Exchange([] {
           std::ifstream infile("../configs/default.json");
           json data = json::parse(infile);
-          std::cout << "got the data" << std::endl;
           return data;
-      }()) 
-{}
+      }()) {}
 
 Exchange::Exchange(const json &cfg)
     : sink_(cfg["sink_size"].get<std::size_t>()), engine_(sink_) {
@@ -21,15 +19,16 @@ Exchange::Exchange(const json &cfg)
     SymbolId nextSymId = 0;
     json valid_sym = cfg["symbols"];
     for (auto &[stock, _] : valid_sym.items()) {
-        stock_registry_.emplace(stock, nextSymId);
+        // stock_registry_.emplace(stock, nextSymId);
+        stock_registry_[stock] = nextSymId;
         // std::cout << stock << nextSymId << std::endl;
         nextSymId++;
     }
 
-    for (const auto& [k, v] : stock_registry_) {
-    std::cout << "addr=" << static_cast<const void*>(k.data())
-              << " val=" << k << std::endl;
-    }
+    // for (const auto& [k, v] : stock_registry_) {
+    // std::cout << "addr=" << static_cast<const void*>(k.data())
+    //           << " val=" << k << std::endl;
+    // }
 
     // Next, we wanna pass nextSymId into the matching engine,
     // so that it can make and keep track of that many orderbooks
@@ -41,26 +40,17 @@ Exchange::Exchange(const json &cfg)
 SubmitResult Exchange::SubmitOrder(Symbol symbol, Price price, Quantity qty,
                                    Side side, OrderType type, TypeInForce tif) {
 
-    // First find the symbol id
-    for (const auto& [k, _] : stock_registry_) {
-        std::cout << "k == \"AAPL\" ? " << (k == "AAPL") << std::endl;
+    // std::cout << "hash(map key) = " << std::hash<Symbol>{}(symbol) <<
+    // std::endl; for (const auto& [k, _] : stock_registry_) {
+    //     std::cout << "hash(stored key) = " << std::hash<Symbol>{}(k) << ","
+    //     << k << std::endl;
+    // }
+
+    if (!stock_registry_.contains(symbol)) {
+        throw std::runtime_error("Symbol Not Found");
     }
 
-    std::cout << "hash(map key) = " << std::hash<Symbol>{}("AAPL") << std::endl;
-    std::cout << stock_registry_.size() << std::endl; // if added in SubmitOrder
-
-
-    for (const auto& [k, _] : stock_registry_) {
-        std::cout << "hash(stored key) = " << std::hash<Symbol>{}(k) << std::endl;
-    }
-
-    auto it = stock_registry_.find(symbol);
-    if (it == stock_registry_.end()) {
-        throw std::runtime_error("Symbol not found");
-    }
-
-    SymbolId sym_id = it->second;
-
+    SymbolId sym_id = stock_registry_.at(symbol);
     return engine_.SubmitOrder(sym_id, price, qty, side, type, tif);
 }
 
@@ -68,14 +58,15 @@ EngineResult Exchange::CancelOrder(OrderId id) {
     return engine_.CancelOrder(id);
 }
 
-EngineResult Exchange::ModifyOrder(OrderId id, Quantity newQty, std::optional<Price> newPrice) {
+EngineResult Exchange::ModifyOrder(OrderId id, Quantity newQty,
+                                   std::optional<Price> newPrice) {
     return engine_.ModifyOrder(id, newQty, newPrice);
 }
 
 void Exchange::L2Snapshot(Symbol symbol) {
     auto it = stock_registry_.find(symbol);
     if (it == stock_registry_.end()) {
-        throw std::runtime_error("Symbol Not Found");
+        throw std::runtime_error("Symbol Not Found From L2 Snapshot");
     }
 
     SymbolId symid = it->second;
