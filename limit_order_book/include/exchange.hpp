@@ -19,9 +19,9 @@ class Exchange {
                              Side side, OrderType type = OrderType::LIMIT,
                              TypeInForce tif = TypeInForce::GTC);
 
-    EngineResult CancelOrder(OrderId id);
-    EngineResult ModifyOrder(OrderId id, Quantity newQty,
-                             std::optional<Price> newPrice = std::nullopt);
+    StatusCode CancelOrder(OrderId id);
+    StatusCode ModifyOrder(OrderId id, Quantity newQty,
+                           std::optional<Price> newPrice = std::nullopt);
     void L2Snapshot(Symbol symbol);
 
   private:

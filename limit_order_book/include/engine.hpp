@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-enum class EngineResult {
+enum class StatusCode {
     Success,
     SymbolNotFound,
     OrderNotFound,
@@ -38,11 +38,10 @@ struct Trade {
     Fill aggressor;
     Fill resting;
 };
-// TODO: Clean up Error and result architecture before going into event
-// architecture
+
 struct MatchResult {
     std::vector<Trade> trades;
-    EngineResult error_code;
+    StatusCode error_code;
 };
 
 struct SubmitResult {
@@ -62,9 +61,9 @@ class MatchingEngine {
     SubmitResult SubmitOrder(SymbolId symId, Price price, Quantity quantity,
                              Side side, OrderType type = OrderType::LIMIT,
                              TypeInForce tif = TypeInForce::GTC);
-    EngineResult CancelOrder(OrderId id);
-    EngineResult ModifyOrder(OrderId id, Quantity newQty,
-                             std::optional<Price> newPrice = std::nullopt);
+    StatusCode CancelOrder(OrderId id);
+    StatusCode ModifyOrder(OrderId id, Quantity newQty,
+                           std::optional<Price> newPrice = std::nullopt);
     void DisplayBook(SymbolId symId);
     void L2Snapshot(SymbolId symId);
     void InitBooks(std::size_t numSymbols);

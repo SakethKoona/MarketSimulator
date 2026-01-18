@@ -39,12 +39,10 @@ SubmitResult Exchange::SubmitOrder(Symbol symbol, Price price, Quantity qty,
     SubmitResult res = engine_.SubmitOrder(sym_id, price, qty, side, type, tif);
 }
 
-EngineResult Exchange::CancelOrder(OrderId id) {
-    return engine_.CancelOrder(id);
-}
+StatusCode Exchange::CancelOrder(OrderId id) { return engine_.CancelOrder(id); }
 
-EngineResult Exchange::ModifyOrder(OrderId id, Quantity newQty,
-                                   std::optional<Price> newPrice) {
+StatusCode Exchange::ModifyOrder(OrderId id, Quantity newQty,
+                                 std::optional<Price> newPrice) {
     return engine_.ModifyOrder(id, newQty, newPrice);
 }
 

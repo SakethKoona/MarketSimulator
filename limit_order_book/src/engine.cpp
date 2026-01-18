@@ -41,7 +41,7 @@ void MatchingEngine::InitBooks(std::size_t numSymbols) {
         books_vec_.emplace_back(std::make_unique<OrderBook>(i));
     }
 
-    for (auto& el : books_vec_) {
+    for (auto &el : books_vec_) {
         std::cout << "Element: " << el << std::endl;
     }
 }
@@ -83,7 +83,7 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
     2. If the incoming is a LIMIT incoming, we want to fill at that price OR
     BETTER.
     */
-    MatchResult res{};
+    MatchResult res;
 
     if (incoming.typeInForce == TypeInForce::FOK) {
         Quantity remaining = incoming.quantity;
@@ -111,10 +111,7 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
         }
 
         if (!canFillAll) {
-            logger_.log(Level::INFO,
-                        "Order " + std::to_string(incoming.orderId) +
-                            " failed FOK pre-screen, not enough liquidity.");
-            res.error_code = EngineResult::NotEnoughLiquidity;
+            res.error_code = StatusCode::NotEnoughLiquidity;
             return res;
         }
     }
@@ -124,7 +121,7 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
             (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
 
         if (price_level == nullptr) {
-            res.error_code = EngineResult::NotEnoughLiquidity;
+            res.error_code = StatusCode::NotEnoughLiquidity;
             break;
         }; // Nothing to match, book was empty
 
@@ -188,16 +185,16 @@ MatchResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
         }
     }
 
-    res.error_code = EngineResult::Success;
+    res.error_code = StatusCode::Success;
     return res;
 }
 
-EngineResult MatchingEngine::CancelOrder(OrderId id) {
+StatusCode MatchingEngine::CancelOrder(OrderId id) {
     // First, we search the order lookup in the engine to 1. get the engine,
     // and also to check if the order was even processed
     auto it = orders_.find(id);
     if (it == orders_.end()) {
-        return EngineResult::OrderNotFound;
+        return StatusCode::OrderNotFound;
     }
 
     // Otherwise, let's get the pointer to the book
@@ -206,17 +203,17 @@ EngineResult MatchingEngine::CancelOrder(OrderId id) {
     // Then, we can just call cancel order
     auto result = book.CancelOrder(id);
     if (result == OrderResult::Success) {
-        return EngineResult::Success;
+        return StatusCode::Success;
     } else {
-        return EngineResult::OrderNotFound;
+        return StatusCode::OrderNotFound;
     }
 }
 
-EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
-                                         std::optional<Price> newPrice) {
+StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
+                                       std::optional<Price> newPrice) {
     auto it = orders_.find(id);
     if (it == orders_.end()) {
-        return EngineResult::OrderNotFound;
+        return StatusCode::OrderNotFound;
     }
 
     // First, get the orderbook
@@ -224,7 +221,7 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
     const OrderInfo *resting = book.FindOrder(id);
 
     if (resting == nullptr)
-        return EngineResult::OrderNotFound;
+        return StatusCode::OrderNotFound;
 
     // Case 1: changce price OR higher quantity
     if (newPrice || newQty > resting->order->quantity) {
@@ -243,7 +240,7 @@ EngineResult MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         book.ModifyOrder(resting->order->orderId, newQty);
     }
 
-    return EngineResult::Success;
+    return StatusCode::Success;
 }
 
 void MatchingEngine::DisplayBook(SymbolId symId) {
