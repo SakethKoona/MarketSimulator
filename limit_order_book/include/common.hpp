@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 
@@ -17,3 +18,9 @@ using MatchNumber = uint64_t;
 using SymbolId = uint64_t;
 using Symbol = std::string;
 
+// Common reusable functions
+inline Timestamp get_current_timestamp() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::high_resolution_clock::now().time_since_epoch())
+        .count();
+}

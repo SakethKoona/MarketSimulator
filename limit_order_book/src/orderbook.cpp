@@ -1,5 +1,5 @@
-#include "../include/orderbook.hpp"
-#include "types.hpp"
+#include "orderbook.hpp"
+#include "common.hpp"
 #include <iomanip>
 /* ============================================================
    TIMESTAMP HELPERS
@@ -54,10 +54,7 @@ Order::Order(OrderId orderId, Price price, Quantity quantity,
     : orderId(orderId), price(price), quantity(quantity), orderType(orderType),
       typeInForce(typeInForce), side(side) {
 
-    this->timestamp =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::high_resolution_clock::now().time_since_epoch())
-            .count();
+    this->timestamp = get_current_timestamp();
 }
 
 std::ostream &operator<<(std::ostream &os, const Order &o) {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "types.hpp"
+#include "common.hpp"
 #include <cstddef>
 #include <cstdlib>
 
@@ -83,6 +83,8 @@ template <typename T> class RingBuffer {
     // In current design, messages can be
     // overwritten, which is fast, in the future, we might need
     // to make that more safe
+
+    // Returns a pointer to the event
     T *push(const T &msg) {
         *(buffer + writeOffset_) = msg;
         T *ptr = (buffer + writeOffset_);
@@ -90,6 +92,7 @@ template <typename T> class RingBuffer {
         return ptr;
     }
 
+    // Once popped, we return a pointer to the popped object
     T *pop() {
         if (writeOffset_ == readOffset_) // Empty buffer
             return nullptr;
@@ -98,7 +101,13 @@ template <typename T> class RingBuffer {
         return msgPtr;
     }
 
-    bool peek() {}
+    // Looks at value without popping and adjusting offsets
+    T* peek() {
+        if (writeOffset_ == readOffset_) {
+            return nullptr;
+        }
+        return (buffer + readOffset_);
+    }
 
   private:
     T *buffer;

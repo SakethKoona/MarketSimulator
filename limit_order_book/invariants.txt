@@ -17,4 +17,12 @@ PriceLevel Integrity:
 Next, we need to make these tests something more mechanical and directly testable, some are already there,
 but others we can refine more.
 
+When it comes to error types in the exchange, we want the following information
+passing through:
+- FillOrder
+  -> an array of all the trades that have passed through
+  -> but trades are going to be emitted anyways
+  -> we can just return an error code then?
+
+
 

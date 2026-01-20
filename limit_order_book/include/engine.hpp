@@ -1,10 +1,10 @@
 #pragma once
 
+#include "common.hpp"
 #include "events.hpp"
 #include "logger.hpp"
 #include "nlohmann/json.hpp"
 #include "orderbook.hpp"
-#include "types.hpp"
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -37,6 +37,12 @@ struct Trade {
 
     Fill aggressor;
     Fill resting;
+};
+
+enum class FillResult {
+    FullyFilled,
+    PartiallyFilled,
+    NotFilled,
 };
 
 struct MatchResult {
@@ -74,12 +80,13 @@ class MatchingEngine {
     std::vector<std::unique_ptr<OrderBook>> books_vec_;
     std::unordered_map<OrderId, OrderBook *> orders_;
 
-    MatchResult FillOrder(Order &order, OrderBook &book);
+    FillResult FillOrder(Order &order, OrderBook &book);
     SubmitResult SubmitOrderInternal(SymbolId symId, OrderId id, Price price,
                                      Quantity quantity, Side side,
                                      OrderType type, TypeInForce tif);
     static OrderId nextOrderId();
     static TradeId nextTradeId();
+    bool CanFillAll(const Order &incoming, const OrderBook &book);
     Logger logger_;
     EventSink sink_;
 };
