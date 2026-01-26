@@ -87,6 +87,7 @@ class MatchingEngine {
     static OrderId nextOrderId();
     static TradeId nextTradeId();
     bool CanFillAll(const Order &incoming, const OrderBook &book);
+    Trade RunMatchingIteration(const Order &incoming, const Order &resting);
     Logger logger_;
     EventSink sink_;
 };

@@ -56,6 +56,7 @@ SubmitResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
         Order order = Order(id, price, quantity, type, tif, side);
 
         FillResult res = FillOrder(order, ob);
+        // TODO: Fix this
         return {id, res};
     } catch (std::out_of_range) {
         throw std::runtime_error("Symbol not found from matching engine");
@@ -101,6 +102,29 @@ bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
     }
 
     return false;
+}
+
+Trade RunMatchingIteration(const Order &incoming, const Order &resting) {
+
+    // If we can't trade here, we return an empty trade
+    if (incoming.orderType == OrderType::LIMIT &&
+        !IsPriceMoreAggressive(incoming.price, resting.price, incoming.side)) {
+
+        return Trade{};
+    }
+
+    Quantity executed_quantity = std::min(incoming.quantity, resting.quantity);
+    Price executed_price = resting.price;
+
+    Fill resting_fill{.orderId = resting.orderId,
+                      .qty = executed_quantity,
+                      .price = executed_price,
+                      .time = get_current_timestamp(),
+                      .side = resting.side};
+
+    sink_.emit(
+
+    );
 }
 
 FillResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {

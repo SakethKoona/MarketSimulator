@@ -55,3 +55,13 @@ TradeEvent
  - contains:
     - order reference number, side, qty, symbol, price, match reference number
     - Although ITCH contains a reference number field for the trade event, it is always 0 for this event
+
+
+More Notes:
+- What should happen when we fill/execute a match
+- We need to cover the following two events:
+  1. If a resting order gets fully or partially filled, we want to show thatm
+  we can use the OrderExecutedEvent to do this
+  2. We also want to show that an incoming order has been modified, we can do this with the TradeEvent,
+  The reference number is alawys 0.
+  
