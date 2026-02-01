@@ -78,9 +78,11 @@ class MatchingEngine {
     static std::atomic<OrderId> nextOrderId_;
     static std::atomic<TradeId> nextTradeId_;
     std::vector<std::unique_ptr<OrderBook>> books_vec_;
-    std::unordered_map<OrderId, OrderBook *> orders_;
+    // std::unordered_map<OrderId, OrderBook *> orders_;
 
-    FillResult FillOrder(Order &order, OrderBook &book);
+    std::unordered_map<OrderId, SymbolId> orders_;
+
+    FillResult FillOrder(Order &order, SymbolId symId);
     SubmitResult SubmitOrderInternal(SymbolId symId, OrderId id, Price price,
                                      Quantity quantity, Side side,
                                      OrderType type, TypeInForce tif);

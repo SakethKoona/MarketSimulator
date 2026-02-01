@@ -51,11 +51,8 @@ SubmitResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
                                                  Side side, OrderType type,
                                                  TypeInForce tif) {
     try {
-        auto &ob = *books_vec_.at(symId);
-
         Order order = Order(id, price, quantity, type, tif, side);
-
-        FillResult res = FillOrder(order, ob);
+        FillResult res = FillOrder(order, symId);
         // TODO: Fix this
         return {id, res};
     } catch (std::out_of_range) {
@@ -74,7 +71,6 @@ OrderId MatchingEngine::nextOrderId() { return nextOrderId_++; }
 TradeId MatchingEngine::nextTradeId() { return nextTradeId_++; }
 
 bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
-
     Quantity remaining = incoming.quantity;
 
     const Book &match_book =
@@ -104,30 +100,9 @@ bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
     return false;
 }
 
-Trade RunMatchingIteration(const Order &incoming, const Order &resting) {
+FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId symId) {
+    OrderBook &book = *books_vec_[symId];
 
-    // If we can't trade here, we return an empty trade
-    if (incoming.orderType == OrderType::LIMIT &&
-        !IsPriceMoreAggressive(incoming.price, resting.price, incoming.side)) {
-
-        return Trade{};
-    }
-
-    Quantity executed_quantity = std::min(incoming.quantity, resting.quantity);
-    Price executed_price = resting.price;
-
-    Fill resting_fill{.orderId = resting.orderId,
-                      .qty = executed_quantity,
-                      .price = executed_price,
-                      .time = get_current_timestamp(),
-                      .side = resting.side};
-
-    sink_.emit(
-
-    );
-}
-
-FillResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
     // Initial FOK check -> O(n)
     if (incoming.typeInForce == TypeInForce::FOK &&
         !CanFillAll(incoming, book)) {
@@ -194,7 +169,7 @@ FillResult MatchingEngine::FillOrder(Order &incoming, OrderBook &book) {
         if (incoming.typeInForce == TypeInForce::GTC &&
             incoming.orderType == OrderType::LIMIT) {
             book.AddOrder(incoming);
-            orders_.emplace(incoming.orderId, &book);
+            orders_.emplace(incoming.orderId, symId);
         }
 
         return FillResult::PartiallyFilled;
@@ -212,7 +187,8 @@ StatusCode MatchingEngine::CancelOrder(OrderId id) {
     }
 
     // Otherwise, let's get the pointer to the book
-    OrderBook &book = *it->second;
+    SymbolId sym_id = it->second;
+    OrderBook &book = *books_vec_[sym_id];
 
     // Then, we can just call cancel order
     auto result = book.CancelOrder(id);
@@ -230,8 +206,10 @@ StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         return StatusCode::OrderNotFound;
     }
 
+    SymbolId sym_id = it->second;
+    OrderBook &book = *books_vec_[sym_id];
+
     // First, get the orderbook
-    OrderBook &book = *it->second;
     const OrderInfo *resting = book.FindOrder(id);
 
     if (resting == nullptr)
@@ -265,6 +243,7 @@ void MatchingEngine::DisplayBook(SymbolId symId) {
         throw std::runtime_error("Symbol Not Found");
     }
 }
+
 void MatchingEngine::L2Snapshot(SymbolId symId) {
     try {
         auto &ob = books_vec_.at(symId);
