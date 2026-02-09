@@ -21,7 +21,7 @@ enum class StatusCode {
 
 struct Fill {
     OrderId orderId;
-    Quantity qty;
+    Quantity executed_qty;
     Price price;
     Timestamp time;
     Side side;

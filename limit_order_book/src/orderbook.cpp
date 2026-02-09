@@ -130,11 +130,11 @@ std::ostream &operator<<(std::ostream &os, const PriceLevel &pl) {
    ============================================================ */
 
 OrderBook::OrderBook() : bids_(0.5), asks_(0.5), symId(-1) {}
-
 OrderBook::OrderBook(SymbolId sym_id) : bids_(0.5), asks_(0.5), symId(sym_id) {}
 
 const Book &OrderBook::bids() const { return bids_; }
 const Book &OrderBook::asks() const { return asks_; }
+std::size_t OrderBook::size() { return (bids_.len() + asks_.len()); }
 
 OrderResult OrderBook::AddOrder(const Order &order) {
     if (order.quantity <= 0)

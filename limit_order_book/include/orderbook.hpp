@@ -1,9 +1,9 @@
 #pragma once
 
+#include "common.hpp"
 #include "errors.hpp"
 #include "events.hpp"
 #include "skiplist.hpp"
-#include "common.hpp"
 #include <chrono>
 #include <cstdint>
 #include <ctime>
@@ -106,7 +106,7 @@ class OrderBook {
 
     const PriceLevel *bestBid() const;
     const PriceLevel *bestAsk() const;
-
+    std::size_t size();
     const OrderInfo *FindOrder(OrderId id);
 
   private:

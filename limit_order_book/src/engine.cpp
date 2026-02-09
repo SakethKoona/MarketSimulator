@@ -103,79 +103,89 @@ bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
 FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId symId) {
     OrderBook &book = *books_vec_[symId];
 
-    // Initial FOK check -> O(n)
-    if (incoming.typeInForce == TypeInForce::FOK &&
-        !CanFillAll(incoming, book)) {
-        return FillResult::NotFilled;
+    std::vector<Fill> tentative_fills;
+    tentative_fills.reserve(book.size());
+
+    const Book &match_book =
+        (incoming.side == Side::Buy) ? book.asks() : book.bids();
+    SkipListNode<Price, PriceLevel> *level = match_book.GetHead();
+    while (incoming.quantity > 0 && level != nullptr) {
     }
-
-    // Matching Logic
-    while (incoming.quantity > 0) {
-        const PriceLevel *price_level =
-            (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
-
-        if (price_level == nullptr) {
-            return FillResult::PartiallyFilled;
-        }
-
-        // FIFO order
-        auto &resting = price_level->orders.front();
-
-        // Early exit condition for limit orders
-        if (incoming.orderType == OrderType::LIMIT &&
-            !IsPriceMoreAggressive(incoming.price, resting.price,
-                                   incoming.side)) {
-            break;
-        }
-
-        Quantity exec_quantity = std::min(incoming.quantity, resting.quantity);
-        Price exec_price = resting.price;
-
-        // Actual trade happenning in the order book
-        Timestamp currentTime = get_current_timestamp();
-
-        Fill resting_fill{.orderId = resting.orderId,
-                          .qty = exec_quantity,
-                          .price = exec_price,
-                          .time = currentTime,
-                          .side = resting.side};
-
-        incoming.quantity -= exec_quantity;
-        if (exec_quantity == resting.quantity) {
-            book.CancelOrder(resting.orderId);
-        } else {
-            book.ModifyOrder(resting.orderId, resting.quantity - exec_quantity);
-        }
-
-        // Something has been matched, so we create a trade.
-        Fill incoming_fill{
-            .orderId = incoming.orderId,
-            .qty = exec_quantity,
-            .price = exec_price,
-            .time = currentTime,
-            .side = incoming.side,
-        };
-
-        Trade trade{.id = MatchingEngine::nextTradeId(),
-                    .symId = book.symId,
-                    .price = exec_price,
-                    .quantity = exec_quantity,
-                    .aggressor = incoming_fill,
-                    .resting = resting_fill};
-    }
-
-    // For GTC partial fills, we add them to the book, for all other types,
-    if (incoming.quantity > 0) {
-        if (incoming.typeInForce == TypeInForce::GTC &&
-            incoming.orderType == OrderType::LIMIT) {
-            book.AddOrder(incoming);
-            orders_.emplace(incoming.orderId, symId);
-        }
-
-        return FillResult::PartiallyFilled;
-    }
-
-    return FillResult::FullyFilled;
+    //
+    // // Initial FOK check -> O(n)
+    // if (incoming.typeInForce == TypeInForce::FOK &&
+    //     !CanFillAll(incoming, book)) {
+    //     return FillResult::NotFilled;
+    // }
+    //
+    // // Matching Logic
+    // while (incoming.quantity > 0) {
+    //     const PriceLevel *price_level =
+    //         (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
+    //
+    //     if (price_level == nullptr) {
+    //         return FillResult::PartiallyFilled;
+    //     }
+    //
+    //     // FIFO order
+    //     auto &resting = price_level->orders.front();
+    //
+    //     // Early exit condition for limit orders
+    //     if (incoming.orderType == OrderType::LIMIT &&
+    //         !IsPriceMoreAggressive(incoming.price, resting.price,
+    //                                incoming.side)) {
+    //         break;
+    //     }
+    //
+    //     Quantity exec_quantity = std::min(incoming.quantity,
+    //     resting.quantity); Price exec_price = resting.price;
+    //
+    //     // Actual trade happenning in the order book
+    //     Timestamp currentTime = get_current_timestamp();
+    //
+    //     Fill resting_fill{.orderId = resting.orderId,
+    //                       .executed_qty = exec_quantity,
+    //                       .price = exec_price,
+    //                       .time = currentTime,
+    //                       .side = resting.side};
+    //
+    //     incoming.quantity -= exec_quantity;
+    //     if (exec_quantity == resting.quantity) {
+    //         book.CancelOrder(resting.orderId);
+    //     } else {
+    //         book.ModifyOrder(resting.orderId, resting.quantity -
+    //         exec_quantity);
+    //     }
+    //
+    //     // Something has been matched, so we create a trade.
+    //     Fill incoming_fill{
+    //         .orderId = incoming.orderId,
+    //         .qty = exec_quantity,
+    //         .price = exec_price,
+    //         .time = currentTime,
+    //         .side = incoming.side,
+    //     };
+    //
+    //     Trade trade{.id = MatchingEngine::nextTradeId(),
+    //                 .symId = book.symId,
+    //                 .price = exec_price,
+    //                 .quantity = exec_quantity,
+    //                 .aggressor = incoming_fill,
+    //                 .resting = resting_fill};
+    // }
+    //
+    // // For GTC partial fills, we add them to the book, for all other types,
+    // if (incoming.quantity > 0) {
+    //     if (incoming.typeInForce == TypeInForce::GTC &&
+    //         incoming.orderType == OrderType::LIMIT) {
+    //         book.AddOrder(incoming);
+    //         orders_.emplace(incoming.orderId, symId);
+    //     }
+    //
+    //     return FillResult::PartiallyFilled;
+    // }
+    //
+    // return FillResult::FullyFilled;
 }
 
 StatusCode MatchingEngine::CancelOrder(OrderId id) {
