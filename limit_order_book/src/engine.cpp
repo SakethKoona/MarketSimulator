@@ -2,6 +2,7 @@
 #include "common.hpp"
 #include "events.hpp"
 #include "orderbook.hpp"
+#include "sequencer.hpp"
 #include <cstddef>
 #include <stdexcept>
 #include <string>
@@ -31,8 +32,8 @@ static std::string generateLogFilename() {
     return filename;
 }
 
-MatchingEngine::MatchingEngine(EventSink &sink)
-    : logger_(generateLogFilename()), sink_(sink) {}
+MatchingEngine::MatchingEngine(EventSink &sink, Sequencer &seq)
+    : logger_(generateLogFilename()), sink_(sink), sequencer_(seq) {}
 
 void MatchingEngine::InitBooks(std::size_t numSymbols) {
     std::cout << "Init books has been called" << numSymbols << std::endl;
@@ -129,39 +130,14 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId symId) {
         }
 
         Quantity exec_quantity = std::min(incoming.quantity, resting.quantity);
-        Price exec_price = resting.price;
 
         // Actual trade happenning in the order book
-        Timestamp currentTime = get_current_timestamp();
-
-        Fill resting_fill{.orderId = resting.orderId,
-                          .executed_qty = exec_quantity,
-                          .price = exec_price,
-                          .time = currentTime,
-                          .side = resting.side};
-
         incoming.quantity -= exec_quantity;
         if (exec_quantity == resting.quantity) {
             book.CancelOrder(resting.orderId);
         } else {
             book.ModifyOrder(resting.orderId, resting.quantity - exec_quantity);
         }
-
-        // Something has been matched, so we create a trade.
-        Fill incoming_fill{
-            .orderId = incoming.orderId,
-            .executed_qty = exec_quantity,
-            .price = exec_price,
-            .time = currentTime,
-            .side = incoming.side,
-        };
-
-        Trade trade{.id = MatchingEngine::nextTradeId(),
-                    .symId = book.symId,
-                    .price = exec_price,
-                    .quantity = exec_quantity,
-                    .aggressor = incoming_fill,
-                    .resting = resting_fill};
     }
 
     // For GTC partial fills, we add them to the book, for all other types,

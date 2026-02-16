@@ -62,7 +62,7 @@ class MatchingEngine {
     std::string name;
 
     // Constructor
-    MatchingEngine(EventSink &sink);
+    MatchingEngine(EventSink &sink, Sequencer &seq);
 
     // API's
     SubmitResult SubmitOrder(SymbolId symId, Price price, Quantity quantity,
@@ -91,4 +91,5 @@ class MatchingEngine {
     Trade RunMatchingIteration(const Order &incoming, const Order &resting);
     Logger logger_;
     EventSink sink_;
+    Sequencer sequencer_;
 };
