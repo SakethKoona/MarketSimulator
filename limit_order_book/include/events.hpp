@@ -102,7 +102,7 @@ template <typename T> class RingBuffer {
     }
 
     // Looks at value without popping and adjusting offsets
-    T* peek() {
+    T *peek() {
         if (writeOffset_ == readOffset_) {
             return nullptr;
         }

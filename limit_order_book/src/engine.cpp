@@ -150,7 +150,7 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId symId) {
         // Something has been matched, so we create a trade.
         Fill incoming_fill{
             .orderId = incoming.orderId,
-            .qty = exec_quantity,
+            .executed_qty = exec_quantity,
             .price = exec_price,
             .time = currentTime,
             .side = incoming.side,
@@ -171,6 +171,22 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId symId) {
             book.AddOrder(incoming);
             orders_.emplace(incoming.orderId, symId);
         }
+
+        AddOrderEvent add_order{
+            .sym_id = symId,
+            .ref_number =, //.. generate from sequencer here todo,
+            .price = incoming.price,
+            .qty = incoming.quantity,
+            .side = incoming.side,
+        };
+
+        Event emission{
+            .type = EventType::OrderAdded,
+            .timeGenerated = get_current_timestamp(),
+            .add_event = add_order,
+        };
+
+        sink_.emit(emission);
 
         return FillResult::PartiallyFilled;
     }

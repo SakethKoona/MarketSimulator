@@ -5,6 +5,7 @@
 #include "logger.hpp"
 #include "nlohmann/json.hpp"
 #include "orderbook.hpp"
+#include "sequencer.hpp"
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -78,8 +79,6 @@ class MatchingEngine {
     static std::atomic<OrderId> nextOrderId_;
     static std::atomic<TradeId> nextTradeId_;
     std::vector<std::unique_ptr<OrderBook>> books_vec_;
-    // std::unordered_map<OrderId, OrderBook *> orders_;
-
     std::unordered_map<OrderId, SymbolId> orders_;
 
     FillResult FillOrder(Order &order, SymbolId symId);
