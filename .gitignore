@@ -2,5 +2,6 @@ limit_order_book/third_party/
 limit_order_book/compile_flags.txt
 .vscode/
 limit_order_book/logs/
-
+CLAUDE.md
+.claude/
 

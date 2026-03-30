@@ -19,40 +19,36 @@ enum class StatusCode {
     NotEnoughLiquidity,
 };
 
-struct Fill {
-    OrderId orderId;
-    Quantity executed_qty;
-    Price price;
-    Timestamp time;
-    Side side;
-};
-
 using TradeId = uint64_t;
 
-struct Trade {
-    TradeId id;
-    SymbolId symId;
-    Price price;
-    Quantity quantity;
-
-    Fill aggressor;
-    Fill resting;
-};
-
-enum class FillResult {
+enum class FillStatus {
     FullyFilled,
     PartiallyFilled,
-    NotFilled,
+    Rejected,
 };
 
-struct MatchResult {
-    std::vector<Trade> trades;
+enum class ModifyStatus {
+    ModifiedInPlace,
+    CancelAndReplace,
+    Rejected,
+};
+
+struct FillResult {
+    OrderId order_id;
+    FillStatus status;
     StatusCode error_code;
+    Quantity qty_executed;
+
+    FillResult(OrderId id);
+};
+
+struct ModifyOrderResult {
+    OrderId order_id;
+    ModifyStatus status;
 };
 
 struct SubmitResult {
     OrderId orderId;
-    MatchResult matchRes;
 };
 
 class MatchingEngine {
@@ -64,7 +60,7 @@ class MatchingEngine {
     MatchingEngine(EventSink &sink, Sequencer &seq);
 
     // API's
-    SubmitResult SubmitOrder(SymbolId symId, Price price, Quantity quantity,
+    FillResult SubmitOrder(SymbolId symId, Price price, Quantity quantity,
                              Side side, OrderType type = OrderType::LIMIT,
                              TypeInForce tif = TypeInForce::GTC);
     StatusCode CancelOrder(OrderId id);
@@ -81,13 +77,13 @@ class MatchingEngine {
     std::unordered_map<OrderId, SymbolId> orders_;
 
     FillResult FillOrder(Order &order, SymbolId symId);
-    SubmitResult SubmitOrderInternal(SymbolId symId, OrderId id, Price price,
+    FillResult SubmitOrderInternal(SymbolId symId, OrderId id, Price price,
                                      Quantity quantity, Side side,
                                      OrderType type, TypeInForce tif);
     static OrderId nextOrderId();
     static TradeId nextTradeId();
     bool CanFillAll(const Order &incoming, const OrderBook &book);
-    Trade RunMatchingIteration(const Order &incoming, const Order &resting);
+    // Trade RunMatchingIteration(const Order &incoming, const Order &resting);
     EventSink &sink_;
     Sequencer &sequencer_;
 };
