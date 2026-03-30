@@ -65,3 +65,15 @@ More Notes:
   2. We also want to show that an incoming order has been modified, we can do this with the TradeEvent,
   The reference number is alawys 0.
   
+
+
+
+What will the actual architecture look like?
+- The exchange will act as the central owner of everything, the matching engine, the (possibly) TUI, as well as the
+worker threads that will spread this information on UDP multicast, as well as have openings for the data ingestion
+from the simulator.
+
+
+Exchange will own the:
+- MatchingEngine
+- EventSink

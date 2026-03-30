@@ -5,5 +5,7 @@
         "NVDA": {}
     },
 
-    "sink_size": 10
+    "sink_size": 10,
+    "seq_capacity": 10,
+    "num_symbols": 3
 }

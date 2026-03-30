@@ -1,7 +1,9 @@
 #pragma once
 
 #include "common.hpp"
+#include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 
 enum class EventType {
@@ -78,7 +80,6 @@ template <typename T> class RingBuffer {
         // Initialize the buffer, and allocate memory
         buffer = (T *)malloc(size_ * sizeof(T));
     }
-    // ~RingBuffer() { free(buffer); }
 
     // In current design, messages can be
     // overwritten, which is fast, in the future, we might need
@@ -123,6 +124,11 @@ class EventSink {
     void emit(const Event &e) noexcept { buffer_.push(e); }
     Event *consume() { return buffer_.pop(); }
 
+    std::uint64_t nextEventId() {
+        return eventCounter_.fetch_add(1, std::memory_order_relaxed);
+    }
+
   private:
+    std::atomic<std::uint64_t> eventCounter_;
     RingBuffer<Event> buffer_;
 };

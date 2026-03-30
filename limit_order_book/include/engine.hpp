@@ -2,7 +2,6 @@
 
 #include "common.hpp"
 #include "events.hpp"
-#include "logger.hpp"
 #include "nlohmann/json.hpp"
 #include "orderbook.hpp"
 #include "sequencer.hpp"
@@ -89,7 +88,6 @@ class MatchingEngine {
     static TradeId nextTradeId();
     bool CanFillAll(const Order &incoming, const OrderBook &book);
     Trade RunMatchingIteration(const Order &incoming, const Order &resting);
-    Logger logger_;
-    EventSink sink_;
-    Sequencer sequencer_;
+    EventSink &sink_;
+    Sequencer &sequencer_;
 };

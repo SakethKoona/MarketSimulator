@@ -3,6 +3,7 @@
 #include "engine.hpp"
 #include "events.hpp"
 #include "orderbook.hpp"
+#include "sequencer.hpp"
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -27,5 +28,6 @@ class Exchange {
     // stores conversion between a named symbol to the symbol id
     std::unordered_map<Symbol, SymbolId> stock_registry_;
     EventSink sink_;
+    Sequencer sequencer_;
     MatchingEngine engine_;
 };

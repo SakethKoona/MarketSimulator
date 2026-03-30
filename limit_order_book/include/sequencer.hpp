@@ -13,10 +13,6 @@
 // - but that's a string in the hotpath, and we don't want that
 // - so how would we access and store information to differentiate
 // - and get different id sequences
-//
-//
-//
-//
 
 class Sequencer {
   public:
@@ -24,5 +20,6 @@ class Sequencer {
     std::uint32_t next(std::size_t id);
 
   private:
-    std::vector<std::atomic<std::uint32_t>> counters;
+    std::vector<std::atomic<std::uint64_t>> counters;
+    std::size_t initial_cap;
 };
