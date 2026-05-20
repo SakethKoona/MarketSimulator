@@ -2,7 +2,9 @@
 #include "common.hpp"
 #include "events.hpp"
 #include "orderbook.hpp"
+#include "results.hpp"
 #include "sequencer.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
@@ -10,10 +12,11 @@
 using json = nlohmann::json;
 std::atomic<OrderId> MatchingEngine::nextOrderId_{1};
 std::atomic<TradeId> MatchingEngine::nextTradeId_{1};
+std::atomic<uint64_t> MatchingEngine::nextSeq_{1};
 
-FillResult::FillResult(OrderId id) 
-: order_id(id), qty_executed(0), status(FillStatus::Rejected), error_code(StatusCode::Success)  
-{}
+FillResult::FillResult(OrderId id)
+    : order_id(id), fill_status(FillStatus::Rejected),
+      status_code(StatusCode::Success), qty_executed(0) {}
 
 bool IsPriceMoreAggressive(Price price, Price other, Side side) {
     if (price == other)
@@ -27,14 +30,14 @@ bool IsPriceMoreAggressive(Price price, Price other, Side side) {
 }
 
 // Helper function to init the logger
-static std::string generateLogFilename() {
-    auto logId = std::chrono::duration_cast<std::chrono::seconds>(
-                     std::chrono::steady_clock::now().time_since_epoch())
-                     .count();
-    const std::string &filename =
-        std::to_string(logId) + "_MatchingEngineLog.txt";
-    return filename;
-}
+// static std::string generateLogFilename() {
+//     auto logId = std::chrono::duration_cast<std::chrono::seconds>(
+//                      std::chrono::steady_clock::now().time_since_epoch())
+//                      .count();
+//     const std::string &filename =
+//         std::to_string(logId) + "_MatchingEngineLog.txt";
+//     return filename;
+// }
 
 MatchingEngine::MatchingEngine(EventSink &sink, Sequencer &seq)
     : sink_(sink), sequencer_(seq) {}
@@ -47,22 +50,27 @@ void MatchingEngine::InitBooks(std::size_t numSymbols) {
 }
 
 FillResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
-                                                 Price price, Quantity quantity,
-                                                 Side side, OrderType type,
-                                                 TypeInForce tif) {
-    try {
-        Order order = Order(id, price, quantity, type, tif, side);
-        FillResult res = FillOrder(order, symId);
+                                               Price price, Quantity quantity,
+                                               Side side, OrderType type,
+                                               TypeInForce tif) {
+    // Avoid throwing for a missing symbol; return a rejected FillResult
+    // instead.
+    if (symId >= books_vec_.size()) {
+        FillResult res(id);
+        res.status_code = StatusCode::SymbolNotFound;
+        res.fill_status = FillStatus::Rejected;
         return res;
-    } catch (std::out_of_range) {
-        throw std::runtime_error("Symbol not found from matching engine");
     }
+
+    Order order = Order(id, price, quantity, type, tif, side);
+    FillResult res = FillOrder(order, symId);
+    return res;
 }
 
 FillResult MatchingEngine::SubmitOrder(SymbolId symId, Price price,
-                                         Quantity quantity, Side side,
-                                         OrderType type, TypeInForce tif) {
-    OrderId id = nextOrderId();
+                                       Quantity quantity, Side side,
+                                       OrderType type, TypeInForce tif) {
+    OrderId id = sequencer_.next(0);
     return SubmitOrderInternal(symId, id, price, quantity, side, type, tif);
 }
 
@@ -99,61 +107,82 @@ bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
     return false;
 }
 
-FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId symId) {
-    OrderBook &book = *books_vec_[symId];
+FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id) {
+    // First, get the orderbook
+    OrderBook &book = *books_vec_.at(sym_id);
     FillResult res = FillResult(incoming.orderId);
+    res.qty_remaining = incoming.quantity;
 
-    // Initial FOK check -> O(n)
-    if (incoming.typeInForce == TypeInForce::FOK && !CanFillAll(incoming, book)) {
-        res.error_code = StatusCode::NotEnoughLiquidity;
-        res.status = FillStatus::Rejected;
+    // Next, we make the FOK Check and terminate early if needed
+    if (incoming.typeInForce == TypeInForce::FOK &&
+        !CanFillAll(incoming, book)) {
+        // Terminate and return the result
+        res.status_code = StatusCode::FOKFailed;
+        res.qty_executed = 0;
+        res.fill_status = FillStatus::Rejected;
         return res;
     }
 
-    // Matching Logic
+    // Matching logic loop
     while (incoming.quantity > 0) {
-        const PriceLevel *price_level = (incoming.side == Side::Buy) ? book.bestAsk() : book.bestBid();
+        // 1. Find the relevant price level, depending on the side of the
+        // incoming
+        const PriceLevel *priceLevel =
+            (incoming.side == Side::Buy) ? book.BestAsk() : book.BestBid();
 
-        if (price_level == nullptr) {
-            res.error_code = StatusCode::NotEnoughLiquidity;
-            res.status = (res.qty_executed == 0) ? FillStatus::Rejected : FillStatus::PartiallyFilled;
-            return res;
+        // 2. If the price level is empty, we stop the loop
+        if (priceLevel == nullptr) {
+            res.status_code = StatusCode::Success;
+            res.fill_status = (res.qty_executed == 0)
+                                  ? FillStatus::Rejected
+                                  : FillStatus::PartiallyFilled;
+            break;
         }
 
-        // FIFO order
-        auto &resting = price_level->orders.front();
+        // 3. Otherwise, we get the first order from that price level
+        const Order resting = priceLevel->orders.front();
 
-        // Early exit condition for limit orders
-        if (
-            incoming.orderType == OrderType::LIMIT && 
-            !IsPriceMoreAggressive(incoming.price, resting.price, incoming.side)
-        ) { break; }
+        if (incoming.orderType == OrderType::LIMIT &&
+            !IsPriceMoreAggressive(incoming.price, resting.price,
+                                   incoming.side)) {
+            break;
+        }
 
         Quantity exec_quantity = std::min(incoming.quantity, resting.quantity);
 
-        // Actual trade happenning in the order book
-        incoming.quantity -= exec_quantity;
         if (exec_quantity == resting.quantity) {
+            // If the minimum of the two is the resting, then we cancel the
+            // resting and move on
             book.CancelOrder(resting.orderId);
         } else {
-            book.ModifyOrder(resting.orderId, resting.quantity - exec_quantity);
+            // Otherwise, we Modify the qty of the remaining order, and the
+            // incoming becomes 0
+            book.ModifyOrder(resting.orderId, resting.orderId - exec_quantity);
         }
         res.qty_executed += exec_quantity;
+        incoming.quantity -= exec_quantity;
     }
 
-    // For GTC partial fills, we add them to the book, for all other types,
+    // Handle GTC partial fills
     if (incoming.quantity > 0) {
-        if (incoming.typeInForce == TypeInForce::GTC && incoming.orderType == OrderType::LIMIT) {
+        res.fill_status = FillStatus::PartiallyFilled;
+        res.status_code = StatusCode::Success;
+        res.qty_remaining = incoming.quantity;
+
+        if (incoming.orderType == OrderType::LIMIT &&
+            incoming.typeInForce == TypeInForce::GTC) {
+            // Add it to the book
             book.AddOrder(incoming);
-            orders_.emplace(incoming.orderId, symId);
+            res.qty_remaining = 0;
         }
 
-        res.status = FillStatus::PartiallyFilled;
         return res;
     }
 
-    res.status = FillStatus::FullyFilled;
-    res.error_code = StatusCode::Success;
+    // Everythig has been filled
+    res.status_code = StatusCode::Success;
+    res.fill_status = FillStatus::FullyFilled;
+    res.qty_remaining = 0;
     return res;
 }
 
@@ -169,9 +198,20 @@ StatusCode MatchingEngine::CancelOrder(OrderId id) {
     SymbolId sym_id = it->second;
     OrderBook &book = *books_vec_[sym_id];
 
+    const OrderInfo *cancelled = book.FindOrder(id);
+    if (cancelled == nullptr) {
+        return StatusCode::OrderNotFound;
+    }
+
     // Then, we can just call cancel order
     auto result = book.CancelOrder(id);
     if (result == OrderResult::Success) {
+        // Emit the event
+
+        sink_.emit_cancel_event(sym_id, id, MatchingEngine::nextSeq(),
+                                cancelled->order->side,
+                                cancelled->order->price);
+
         return StatusCode::Success;
     } else {
         return StatusCode::OrderNotFound;
@@ -198,7 +238,8 @@ StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
     if (newPrice || newQty > resting->order->quantity) {
         // We cancel and create
         Price oldPrice = resting->order->price;
-        OrderId newId = resting->order->orderId; // New id stays the same as the old id
+        OrderId newId =
+            resting->order->orderId; // New id stays the same as the old id
         Side newSide = resting->order->side;
         OrderType newType = resting->order->orderType;
         TypeInForce newTif = resting->order->typeInForce;

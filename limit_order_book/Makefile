@@ -33,7 +33,8 @@ SOURCES = \
 	$(SRC_DIR)/engine.cpp \
 	$(SRC_DIR)/arena.cpp \
 	$(SRC_DIR)/logger.cpp \
-	$(SRC_DIR)/exchange.cpp
+	$(SRC_DIR)/exchange.cpp \
+	$(SRC_DIR)/sequencer.cpp
 
 OBJECTS = $(SOURCES:$(SRC_DIR)/%.cpp=$(BUILD_DIR)/%.o)
 

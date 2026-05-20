@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 // Design for the sequencer:
@@ -17,9 +18,9 @@
 class Sequencer {
   public:
     Sequencer(std::size_t initial_capacity);
-    std::uint32_t next(std::size_t id);
+    std::uint32_t next(std::size_t id) const;
 
   private:
-    std::vector<std::atomic<std::uint64_t>> counters;
-    std::size_t initial_cap;
+    std::unique_ptr<std::atomic<std::uint64_t>[]> counters;
+    std::size_t capacity;
 };

@@ -17,7 +17,7 @@ using MatchNumber = uint64_t;
 
 using SymbolId = uint64_t;
 using Symbol = std::string;
-
+using TradeId = uint64_t;
 // Common reusable functions
 inline Timestamp get_current_timestamp() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(

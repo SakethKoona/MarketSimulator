@@ -220,7 +220,7 @@ ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
     return pl->ModifyOrder(order, newQty);
 }
 
-const PriceLevel *OrderBook::bestAsk() const {
+const PriceLevel *OrderBook::BestAsk() const {
     auto *node = asks_.GetHead();
     if (!node) {
         return nullptr;
@@ -228,7 +228,7 @@ const PriceLevel *OrderBook::bestAsk() const {
     return &node->value;
 }
 
-const PriceLevel *OrderBook::bestBid() const {
+const PriceLevel *OrderBook::BestBid() const {
     auto *bestBidNode = bids_.GetHead();
     if (!bestBidNode)
         return nullptr;
@@ -357,11 +357,6 @@ void OrderBook::L2Snapshot() {
 
     const int barWidth = 40;
 
-    // Header
-    std::cout << "\n"
-              << COLORS::bold << COLORS::cyan << "         ╔════════════════ "
-              << symId << " L2 ════════════════╗" << COLORS::reset << "\n\n";
-
     askNode = asks_.GetHead();
     while (askNode) {
         const PriceLevel &level = askNode->value;
@@ -382,8 +377,8 @@ void OrderBook::L2Snapshot() {
     }
 
     // Spread
-    const PriceLevel *bestAskLevel = bestAsk();
-    const PriceLevel *bestBidLevel = bestBid();
+    const PriceLevel *bestAskLevel = BestAsk();
+    const PriceLevel *bestBidLevel = BestBid();
     if (bestAskLevel && bestBidLevel) {
         Price spread = bestAskLevel->price - bestBidLevel->price;
 

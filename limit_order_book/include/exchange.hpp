@@ -4,6 +4,7 @@
 #include "events.hpp"
 #include "orderbook.hpp"
 #include "sequencer.hpp"
+#include "results.hpp"
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -15,7 +16,7 @@ class Exchange {
     Exchange();
     Exchange(const json &cfg);
 
-    SubmitResult SubmitOrder(Symbol symbol, Price price, Quantity qty,
+    FillResult SubmitOrder(Symbol symbol, Price price, Quantity qty,
                              Side side, OrderType type = OrderType::LIMIT,
                              TypeInForce tif = TypeInForce::GTC);
 
@@ -23,6 +24,7 @@ class Exchange {
     StatusCode ModifyOrder(OrderId id, Quantity newQty,
                            std::optional<Price> newPrice = std::nullopt);
     void L2Snapshot(Symbol symbol);
+    void DisplayBook(Symbol Symbol);
 
   private:
     // stores conversion between a named symbol to the symbol id

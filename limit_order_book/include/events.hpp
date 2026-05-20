@@ -5,71 +5,41 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <variant>
 
-enum class EventType {
-    OrderAdded,
-    OrderModified,
-    OrderCanceled,
-    TradeExecuted,
-    OrderSubmitted,
+enum class BookAction : uint8_t {
+    Add,
+    Modify,
+    Delete,
 };
 
-struct AddOrderEvent {
-    SymbolId sym_id;
-    OrderRefNumber ref_number;
+struct OrderBookEvent {
+    SymbolId symbol_id;
+    OrderId order_id;
+    BookAction action;
+    Side side;    // Side
+    Price price;  // Price level
+    Quantity qty; // New resting Quantity
+    uint64_t book_seq;
+    Timestamp ts_ns;
+};
+
+struct TradeFillEvent {
+    SymbolId symbol_id;
+    TradeId trade_id;
+
+    OrderId aggressor_id;
+    OrderId resting_id;
+
+    Side aggressor_side;
+
     Price price;
     Quantity qty;
-    Side side;
+    uint64_t book_seq; // Should match a book_seq from an OrderBookEvent
+    Timestamp ts_ns;
 };
 
-struct DeleteOrderEvent {
-    SymbolId sym_id;
-    OrderRefNumber ref_number;
-};
-
-struct PartialCancelOrderEvent {
-    SymbolId sym_id;
-    OrderRefNumber ref_number;
-    Quantity newQty;
-};
-
-struct OrderExecutedEvent {
-    OrderRefNumber ref_number;
-    SymbolId sym_id;
-    Quantity executed_qty;
-    MatchNumber match_num;
-};
-
-struct OrderRepalceEvent {
-    OrderRefNumber old_ref_number;
-    SymbolId sym_id;
-    OrderRefNumber new_ref_number;
-    Quantity qty;
-    Price price;
-};
-
-struct TradeEvent {
-    OrderRefNumber ref_number;
-    SymbolId sym_id;
-    Price price;
-    Quantity qty;
-    Side side;
-    MatchNumber match_num;
-};
-
-struct Event {
-    EventType type;
-    Timestamp timeGenerated;
-
-    union {
-        AddOrderEvent add_event;
-        PartialCancelOrderEvent partial_cancel;
-        DeleteOrderEvent delete_event;
-        OrderExecutedEvent order_executed;
-        OrderRepalceEvent order_replace;
-        TradeEvent trade;
-    };
-};
+using OutBoundEvent = std::variant<OrderBookEvent, TradeFillEvent>;
 
 // TODO: Make this lock free
 template <typename T> class RingBuffer {
@@ -121,8 +91,18 @@ class EventSink {
   public:
     EventSink(std::size_t buffer_size) : buffer_(buffer_size) {}
 
-    void emit(const Event &e) noexcept { buffer_.push(e); }
-    Event *consume() { return buffer_.pop(); }
+    void emit(const OutBoundEvent &e) noexcept { buffer_.push(e); }
+    OutBoundEvent *consume() { return buffer_.pop(); }
+
+    int emit_cancel_event(SymbolId symbol_id, OrderId order_id,
+                          uint64_t book_seq, Side side, Price price) const;
+
+    int emit_modify_event(SymbolId symbol_id, OrderId order_id,
+                          uint64_t book_seq, Side side, Price price,
+                          Quantity new_qty);
+
+    int emit_add_event(SymbolId symbol_id, OrderId order_id, uint64_t book_seq,
+                       Side side, Price price, Quantity qty);
 
     std::uint64_t nextEventId() {
         return eventCounter_.fetch_add(1, std::memory_order_relaxed);
@@ -130,5 +110,5 @@ class EventSink {
 
   private:
     std::atomic<std::uint64_t> eventCounter_;
-    RingBuffer<Event> buffer_;
+    RingBuffer<OutBoundEvent> buffer_;
 };

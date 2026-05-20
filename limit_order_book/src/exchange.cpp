@@ -15,9 +15,9 @@ Exchange::Exchange()
 
 Exchange::Exchange(const json &cfg)
     : sink_(cfg["sink_size"].get<std::size_t>()),
-      sequencer_(cfg["num_symbols"]
-                     .get<std::size_t>()), // Init one counter for each symbol
+      sequencer_(cfg["num_symbols"].get<std::size_t>()), // Init one counter for each symbol
       engine_(sink_, sequencer_) {
+        
     // Populate the stock_registry
     SymbolId nextSymId = 0;
     json valid_sym = cfg["symbols"];
@@ -32,7 +32,7 @@ Exchange::Exchange(const json &cfg)
     engine_.InitBooks(nextSymId);
 }
 
-SubmitResult Exchange::SubmitOrder(Symbol symbol, Price price, Quantity qty,
+FillResult Exchange::SubmitOrder(Symbol symbol, Price price, Quantity qty,
                                    Side side, OrderType type, TypeInForce tif) {
 
     if (!stock_registry_.contains(symbol)) {
@@ -40,7 +40,7 @@ SubmitResult Exchange::SubmitOrder(Symbol symbol, Price price, Quantity qty,
     }
 
     SymbolId sym_id = stock_registry_.at(symbol);
-    SubmitResult res = engine_.SubmitOrder(sym_id, price, qty, side, type, tif);
+    FillResult res = engine_.SubmitOrder(sym_id, price, qty, side, type, tif);
 
     return res;
 }
@@ -58,6 +58,20 @@ void Exchange::L2Snapshot(Symbol symbol) {
         throw std::runtime_error("Symbol Not Found From L2 Snapshot");
     }
 
+    std::cout << "\n"
+            << COLORS::bold << COLORS::cyan << "         ╔════════════════ "
+            << symbol << " L2 ════════════════╗" << COLORS::reset << "\n\n";
+
     SymbolId symid = it->second;
     engine_.L2Snapshot(symid);
+}
+
+void Exchange::DisplayBook(Symbol symbol) {
+    auto it = stock_registry_.find(symbol);
+    if (it == stock_registry_.end()) {
+        throw std::runtime_error("Symbol Not Found from Display Book");
+    }
+
+    SymbolId symId = it->second;
+    engine_.DisplayBook(symId);
 }

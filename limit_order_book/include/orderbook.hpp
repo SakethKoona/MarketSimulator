@@ -104,8 +104,8 @@ class OrderBook {
     void Display();
     void L2Snapshot();
 
-    const PriceLevel *bestBid() const;
-    const PriceLevel *bestAsk() const;
+    const PriceLevel *BestBid() const;
+    const PriceLevel *BestAsk() const;
     std::size_t size();
     const OrderInfo *FindOrder(OrderId id);
 
