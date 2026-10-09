@@ -39,9 +39,9 @@ static std::filesystem::path self_dir() {
     if (_NSGetExecutablePath(buf, &n) == 0)
         p = buf;
 #else
-    std::error_code ec;
-    auto link = std::filesystem::read_symlink("/proc/self/exe", ec);
-    if (!ec)
+    std::error_code link_ec;
+    auto link = std::filesystem::read_symlink("/proc/self/exe", link_ec);
+    if (!link_ec)
         p = link.string();
 #endif
     if (p.empty())

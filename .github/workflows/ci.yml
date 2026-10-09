@@ -20,16 +20,35 @@ jobs:
         run: cmake --build build -j 4
       - name: test
         run: cd build && ctest --output-on-failure
-      - name: smoke (exchange + flowgen + feed_dump, loopback)
+      - name: smoke (exchange + flowgen + feed_dump, loopback multicast)
+        shell: bash
         run: |
-          build/gateway/exchange_server configs/default.json --seconds 6 --quiet > exchange.log 2>&1 &
+          set -x
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo ip link set lo multicast on
+            sudo ip route add 239.1.1.0/24 dev lo || true
+          fi
+          python3 - <<'PY'
+          import json
+          j = json.load(open('configs/default.json'))
+          j['feed']['interface'] = '127.0.0.1'
+          json.dump(j, open('ci.json', 'w'), indent=1)
+          PY
+          build/gateway/exchange_server ci.json --seconds 8 --quiet > exchange.log 2>&1 &
+          EX=$!
           sleep 1
           build/gateway/feed_dump 239.1.1.1 30001 127.0.0.1 > dump.txt 2> dump.err &
-          build/gateway/flowgen --sessions 2 --rate 2000 --seconds 3 --quiet
-          sleep 3
-          tail -2 exchange.log; tail -1 dump.err
-          grep -q "0 gaps" dump.err
-        shell: bash
+          DP=$!
+          build/gateway/flowgen --config ci.json --sessions 2 --rate 2000 --seconds 3 --quiet
+          sleep 1
+          kill -INT $DP; wait $DP || true
+          wait $EX || true
+          cat exchange.log | tail -3
+          tail -1 dump.err
+          grep -q " 0 gaps" dump.err
+          # The listener must have seen real traffic, not just heartbeats.
+          msgs=$(sed -n 's/.* \([0-9]*\) messages.*/\1/p' dump.err | tail -1)
+          test "${msgs:-0}" -gt 1000
 
   rust:
     name: feedviz (${{ matrix.os }})
