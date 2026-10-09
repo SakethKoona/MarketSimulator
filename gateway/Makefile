@@ -11,11 +11,22 @@ ENGINE_SRC = $(LOB)/src/orderbook.cpp $(LOB)/src/engine.cpp $(LOB)/src/arena.cpp
              $(LOB)/src/events.cpp
 ENGINE_OBJ = $(patsubst $(LOB)/src/%.cpp,$(BUILD)/engine/%.o,$(ENGINE_SRC))
 
-GATEWAY_SRC = src/feed_publisher.cpp src/boe_server.cpp
+GATEWAY_SRC = src/feed_publisher.cpp src/boe_server.cpp src/ingress/core.cpp src/ingress/plugin.cpp
 GATEWAY_OBJ = $(patsubst src/%.cpp,$(BUILD)/%.o,$(GATEWAY_SRC))
 
-TESTS = $(BUILD)/protocol_test $(BUILD)/spsc_ring_test $(BUILD)/feed_reconstruct_test
-BINS  = $(BUILD)/exchange_server $(BUILD)/feed_dump $(BUILD)/flowgen
+UNAME := $(shell uname -s)
+ifeq ($(UNAME),Darwin)
+  SHLIB_EXT = dylib
+  SHLIB_FLAGS = -dynamiclib
+else
+  SHLIB_EXT = so
+  SHLIB_FLAGS = -shared
+  LDLIBS += -ldl
+endif
+PLUGINS = $(BUILD)/jsonl_ingress.$(SHLIB_EXT)
+
+TESTS = $(BUILD)/protocol_test $(BUILD)/spsc_ring_test $(BUILD)/mpmc_ring_test $(BUILD)/feed_reconstruct_test
+BINS  = $(BUILD)/exchange_server $(BUILD)/feed_dump $(BUILD)/flowgen $(PLUGINS)
 
 all: $(BINS) test
 
@@ -26,10 +37,14 @@ $(BUILD)/engine/%.o: $(LOB)/src/%.cpp | $(BUILD)/engine
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -c $< -o $@
 
 $(BUILD)/%.o: src/%.cpp | $(BUILD)
+	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -c $< -o $@
 
+$(BUILD)/jsonl_ingress.$(SHLIB_EXT): plugins/jsonl_ingress.cpp include/ingress/api.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -fPIC $(SHLIB_FLAGS) -Iinclude $< -o $@
+
 $(BUILD)/exchange_server: src/exchange_server.cpp $(GATEWAY_OBJ) $(ENGINE_OBJ) | $(BUILD)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@ $(LDLIBS)
 
 $(BUILD)/feed_dump: tools/feed_dump.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
@@ -50,5 +65,5 @@ test: $(TESTS)
 clean:
 	rm -rf $(BUILD)
 
--include $(BUILD)/*.d $(BUILD)/engine/*.d
+-include $(BUILD)/*.d $(BUILD)/engine/*.d $(BUILD)/ingress/*.d
 .PHONY: all test clean

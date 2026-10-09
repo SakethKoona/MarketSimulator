@@ -7,8 +7,12 @@
 // latency percentiles.
 //
 //   flowgen [--host H] [--port P] [--sessions N] [--rate R] [--seconds S]
-//           [--symbols AAPL,GOOG,NVDA] [--seed K] [--quiet]
+//           [--symbols AAPL,GOOG,NVDA | --config configs/default.json] [--seed K] [--quiet]
+// Without --symbols, the symbol list is read from --config (default:
+// configs/default.json, then ../configs/default.json).
 #include "protocol/boe.hpp"
+#include "nlohmann/json.hpp"
+#include <fstream>
 #include <algorithm>
 #include <arpa/inet.h>
 #include <atomic>
@@ -57,7 +61,8 @@ struct Config {
     int sessions = 4;
     double rate = 20000; // aggregate orders/s
     double seconds = 0;
-    std::vector<std::string> symbols = {"AAPL", "GOOG", "NVDA"};
+    std::vector<std::string> symbols; // empty = from config
+    std::string config;
     std::uint64_t seed = 1;
     bool quiet = false;
 };
@@ -444,6 +449,7 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--seconds")) cfg.seconds = std::atof(val("--seconds"));
         else if (!std::strcmp(argv[i], "--seed")) cfg.seed = std::strtoull(val("--seed"), nullptr, 10);
         else if (!std::strcmp(argv[i], "--quiet")) cfg.quiet = true;
+        else if (!std::strcmp(argv[i], "--config")) cfg.config = val("--config");
         else if (!std::strcmp(argv[i], "--symbols")) {
             cfg.symbols.clear();
             std::string s = val("--symbols");
@@ -455,7 +461,36 @@ int main(int argc, char **argv) {
                 p = q + 1;
             }
         } else {
-            std::fprintf(stderr, "usage: flowgen [--host H] [--port P] [--sessions N] [--rate R] [--seconds S] [--symbols A,B] [--seed K] [--quiet]\n");
+            std::fprintf(stderr, "usage: flowgen [--host H] [--port P] [--sessions N] [--rate R] [--seconds S] [--symbols A,B | --config FILE] [--seed K] [--quiet]\n");
+            return 2;
+        }
+    }
+    if (cfg.symbols.empty()) {
+        std::vector<std::string> candidates;
+        if (!cfg.config.empty()) candidates.push_back(cfg.config);
+        candidates.push_back("configs/default.json");
+        candidates.push_back("../configs/default.json");
+        for (const auto &path : candidates) {
+            std::ifstream in(path);
+            if (!in) continue;
+            try {
+                nlohmann::json j = nlohmann::json::parse(in);
+                for (auto &[name, _] : j.at("symbols").items()) cfg.symbols.push_back(name);
+                if (j.contains("boe") && j["boe"].contains("port") && cfg.port == 30000)
+                    cfg.port = j["boe"]["port"].get<std::uint16_t>();
+                if (j.contains("ingress"))
+                    for (auto &a : j["ingress"])
+                        if (a.value("type", "") == "boe" && a.contains("port") && cfg.port == 30000)
+                            cfg.port = a["port"].get<std::uint16_t>();
+                std::fprintf(stderr, "flowgen: %zu symbols from %s\n", cfg.symbols.size(), path.c_str());
+                break;
+            } catch (const std::exception &e) {
+                std::fprintf(stderr, "flowgen: %s: %s\n", path.c_str(), e.what());
+                return 2;
+            }
+        }
+        if (cfg.symbols.empty()) {
+            std::fprintf(stderr, "flowgen: no symbols; pass --symbols or --config\n");
             return 2;
         }
     }

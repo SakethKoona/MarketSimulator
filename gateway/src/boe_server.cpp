@@ -59,22 +59,21 @@ const char *reject_text_for(StatusCode s) {
 
 } // namespace
 
-BoeServer::BoeServer(BoeConfig cfg, std::vector<SpscRing<InboundCommand> *> commands,
-                     std::vector<SpscRing<OrderReport> *> reports, SymbolMap symbols,
-                     std::vector<std::uint8_t> symbol_shard)
-    : cfg_(std::move(cfg)), commands_(std::move(commands)), reports_(std::move(reports)),
-      symbols_(std::move(symbols)), symbol_shard_(std::move(symbol_shard)) {
-    if (commands_.empty() || commands_.size() != reports_.size())
-        throw std::runtime_error("BoeServer: need one command and one report ring per shard");
-    std::size_t n = 0;
-    for (auto &[name, id] : symbols_)
-        if (id + 1 > n)
-            n = id + 1;
-    tickers_.assign(n, std::string(boe::kSymbolLen, ' '));
-    for (auto &[name, id] : symbols_) {
-        std::string t = name.substr(0, boe::kSymbolLen);
+BoeServer *BoeServer::last_ = nullptr;
+
+BoeServer::BoeServer(BoeConfig cfg, const mktsim_exchange_api *api, mktsim_exchange *ex)
+    : cfg_(std::move(cfg)), api_(api), ex_(ex) {
+    last_ = this;
+    std::vector<mktsim_symbol_info> info(4096);
+    std::size_t n = api_->symbols(ex_, info.data(), info.size());
+    std::uint32_t max_id = 0;
+    for (std::size_t i = 0; i < n; ++i)
+        max_id = std::max(max_id, info[i].symbol_id + 1);
+    tickers_by_id_.assign(max_id, std::string(boe::kSymbolLen, ' '));
+    for (std::size_t i = 0; i < n; ++i) {
+        std::string t(info[i].ticker);
         t.resize(boe::kSymbolLen, ' ');
-        tickers_[id] = t;
+        tickers_by_id_[info[i].symbol_id] = t.substr(0, boe::kSymbolLen);
     }
     sessions_.resize(cfg_.max_sessions);
     for (std::uint32_t i = 0; i < cfg_.max_sessions; ++i)
@@ -198,6 +197,12 @@ void BoeServer::accept_new() {
         std::uint32_t si = free_slots_.back();
         free_slots_.pop_back();
         Session &s = sessions_[si];
+        s.xs = api_->open_session(ex_, "boe");
+        if (!s.xs) {
+            ::close(fd);
+            free_slots_.push_back(si);
+            continue;
+        }
         s.fd = fd;
         s.gen++;
         s.logged_in = false;
@@ -217,6 +222,10 @@ void BoeServer::close_session(std::uint32_t si) {
         return;
     ::close(s.fd);
     s.fd = -1;
+    if (s.xs) {
+        api_->close_session(s.xs);
+        s.xs = nullptr;
+    }
     s.logged_in = false;
     s.rx.clear();
     s.tx.clear();
@@ -437,8 +446,9 @@ void BoeServer::handle_new(std::uint32_t si, const boe::NewOrder &m) {
     ClOrdId cl;
     std::memcpy(cl.v, m.cl_ord_id, boe::kClOrdIdLen);
 
-    auto sym = symbols_.find(trim_field(m.symbol, boe::kSymbolLen));
-    if (sym == symbols_.end())
+    std::uint32_t symbol_id = 0;
+    std::string ticker = trim_field(m.symbol, boe::kSymbolLen);
+    if (api_->resolve_symbol(ex_, ticker.data(), ticker.size(), &symbol_id) != MKTSIM_OK)
         return reject(si, cl, boe::reject_reason::UnknownSymbol, "unknown symbol");
     if (m.qty == 0)
         return reject(si, cl, boe::reject_reason::BadQty, "quantity must be > 0");
@@ -455,20 +465,16 @@ void BoeServer::handle_new(std::uint32_t si, const boe::NewOrder &m) {
     if (s.clords.count(key_of(m.cl_ord_id)))
         return reject(si, cl, boe::reject_reason::DuplicateClOrdId, "duplicate cl_ord_id");
 
-    InboundCommand c{};
+    mktsim_order_req c{};
     c.request_id = next_request_++;
-    c.type = CommandType::NewOrder;
-    c.side = m.side == boe::side::Buy ? Side::Buy : Side::Sell;
-    c.ord_type = m.ord_type == boe::ord_type::Market ? OrderType::MARKET : OrderType::LIMIT;
-    c.tif = m.tif == boe::tif::IOC ? TypeInForce::IOC
-            : m.tif == boe::tif::FOK ? TypeInForce::FOK
-                                     : TypeInForce::GTC;
-    c.symbol_id = static_cast<std::uint32_t>(sym->second);
+    c.kind = MKTSIM_REQ_NEW;
+    c.side = m.side == boe::side::Buy ? MKTSIM_BUY : MKTSIM_SELL;
+    c.ord_type = m.ord_type == boe::ord_type::Market ? MKTSIM_MARKET : MKTSIM_LIMIT;
+    c.tif = m.tif == boe::tif::IOC ? MKTSIM_IOC : m.tif == boe::tif::FOK ? MKTSIM_FOK : MKTSIM_GTC;
+    c.symbol_id = symbol_id;
     c.qty = m.qty;
     c.price = m.price;
-    c.ts_ns = now_ns();
-    std::size_t shard = c.symbol_id < symbol_shard_.size() ? symbol_shard_[c.symbol_id] : 0;
-    if (!push_command(c, shard))
+    if (!push_command(si, c))
         return reject(si, cl, boe::reject_reason::Other, "exchange busy");
     // Reserve the cl_ord_id now so a duplicate sent before the ack is caught.
     s.clords[key_of(m.cl_ord_id)] = 0;
@@ -484,12 +490,11 @@ void BoeServer::handle_cancel(std::uint32_t si, const boe::CancelOrder &m) {
     if (it == s.clords.end() || it->second == 0)
         return reject(si, cl, boe::reject_reason::UnknownOrder, "unknown order");
 
-    InboundCommand c{};
+    mktsim_order_req c{};
     c.request_id = next_request_++;
-    c.type = CommandType::Cancel;
+    c.kind = MKTSIM_REQ_CANCEL;
     c.order_id = it->second;
-    c.ts_ns = now_ns();
-    if (!push_command(c, shard_of(c.order_id)))
+    if (!push_command(si, c))
         return reject(si, cl, boe::reject_reason::Other, "exchange busy");
     pending_[c.request_id] = Pending{si, s.gen, cl, cl, CommandType::Cancel, 0};
 }
@@ -508,39 +513,56 @@ void BoeServer::handle_modify(std::uint32_t si, const boe::ModifyOrder &m) {
     if (key_of(m.cl_ord_id) != key_of(m.orig_cl_ord_id) && s.clords.count(key_of(m.cl_ord_id)))
         return reject(si, cl, boe::reject_reason::DuplicateClOrdId, "duplicate cl_ord_id");
 
-    InboundCommand c{};
+    mktsim_order_req c{};
     c.request_id = next_request_++;
-    c.type = CommandType::Modify;
+    c.kind = MKTSIM_REQ_MODIFY;
     c.order_id = it->second;
     c.qty = m.qty;
     c.price = m.price;
-    c.ts_ns = now_ns();
-    if (!push_command(c, shard_of(c.order_id)))
+    if (!push_command(si, c))
         return reject(si, cl, boe::reject_reason::Other, "exchange busy");
     pending_[c.request_id] = Pending{si, s.gen, cl, orig, CommandType::Modify, m.price};
 }
 
-bool BoeServer::push_command(const InboundCommand &c, std::size_t shard) {
-    if (shard >= commands_.size() || !commands_[shard]->try_push(c)) {
+bool BoeServer::push_command(std::uint32_t si, const mktsim_order_req &req) {
+    int rc = api_->submit(sessions_[si].xs, &req);
+    if (rc != MKTSIM_OK) {
         stats_.ring_full.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
     return true;
 }
 
+namespace {
+// Bridge from the C report struct to the gateway's internal OrderReport.
+OrderReport to_report(const mktsim_report &r) {
+    OrderReport o{};
+    o.request_id = r.request_id;
+    o.order_id = r.order_id;
+    o.kind = static_cast<ReportKind>(r.kind);
+    o.status = static_cast<StatusCode>(r.status);
+    o.side = r.side == MKTSIM_BUY ? Side::Buy : Side::Sell;
+    o.symbol_id = r.symbol_id;
+    o.qty = r.qty;
+    o.last_qty = r.last_qty;
+    o.leaves_qty = r.leaves_qty;
+    o.price = r.price;
+    o.match_id = r.match_id;
+    o.ts_ns = r.ts_ns;
+    return o;
+}
+} // namespace
+
 void BoeServer::drain_reports() {
-    // Round-robin over shards, bounded per shard per pass so one busy shard
-    // cannot starve the others.
-    OrderReport r;
-    bool any = true;
-    while (any) {
-        any = false;
-        for (auto *ring : reports_) {
-            for (int i = 0; i < 64 && ring->try_pop(r); ++i) {
-                on_report(r);
-                any = true;
-            }
-        }
+    // Each exchange session's report queue is polled on this thread; reports
+    // for a session only ever concern that session's orders.
+    for (std::uint32_t si = 0; si < sessions_.size(); ++si) {
+        Session &s = sessions_[si];
+        if (s.fd < 0 || !s.xs)
+            continue;
+        api_->poll(s.xs, [](void *user, const mktsim_report *r) {
+            static_cast<BoeServer *>(user)->on_report(to_report(*r));
+        }, this, 4096);
     }
 }
 
@@ -611,7 +633,7 @@ void BoeServer::on_report(const OrderReport &r) {
             a.ts_ns = ts;
             std::memcpy(a.cl_ord_id, p.cl.v, boe::kClOrdIdLen);
             a.order_id = r.order_id;
-            std::memcpy(a.symbol, tickers_[r.symbol_id].data(), boe::kSymbolLen);
+            std::memcpy(a.symbol, r.symbol_id < tickers_by_id_.size() ? tickers_by_id_[r.symbol_id].data() : "        ", boe::kSymbolLen);
             a.side = r.side == Side::Buy ? boe::side::Buy : boe::side::Sell;
             a.qty = r.qty;
             a.price = r.price;
@@ -676,3 +698,49 @@ void BoeServer::on_report(const OrderReport &r) {
         break; // handled above
     }
 }
+
+
+// ---------------------------------------------------------------- adapter entry points
+
+#include "nlohmann/json.hpp"
+
+namespace {
+struct BoeState {
+    std::unique_ptr<BoeServer> server;
+};
+
+int boe_init(const mktsim_exchange_api *api, mktsim_exchange *ex, const char *config_json, void **state) {
+    if (api->version != MKTSIM_INGRESS_API_VERSION)
+        return 1;
+    BoeConfig cfg;
+    try {
+        nlohmann::json j = nlohmann::json::parse(config_json && *config_json ? config_json : "{}");
+        if (j.contains("port")) cfg.port = j["port"].get<std::uint16_t>();
+        if (j.contains("bind")) cfg.bind = j["bind"].get<std::string>();
+        if (j.contains("heartbeat_ms")) cfg.heartbeat_ms = j["heartbeat_ms"].get<std::uint32_t>();
+        if (j.contains("timeout_ms")) cfg.timeout_ms = j["timeout_ms"].get<std::uint32_t>();
+        if (j.contains("poll_ms")) cfg.poll_ms = j["poll_ms"].get<std::uint32_t>();
+        if (j.contains("max_sessions")) cfg.max_sessions = j["max_sessions"].get<std::size_t>();
+    } catch (const std::exception &e) {
+        api->log(ex, "boe", (std::string("bad config: ") + e.what()).c_str());
+        return 1;
+    }
+    auto *st = new BoeState{std::make_unique<BoeServer>(cfg, api, ex)};
+    *state = st;
+    api->log(ex, "boe", ("order entry on " + cfg.bind + ":" + std::to_string(cfg.port)).c_str());
+    return 0;
+}
+int boe_start(void *state) {
+    try {
+        static_cast<BoeState *>(state)->server->start();
+        return 0;
+    } catch (const std::exception &e) {
+        std::fprintf(stderr, "ingress[boe]: %s\n", e.what());
+        return 1;
+    }
+}
+void boe_stop(void *state) { static_cast<BoeState *>(state)->server->stop(); }
+void boe_destroy(void *state) { delete static_cast<BoeState *>(state); }
+} // namespace
+
+IngressPlugin::Entry BoeServer::entry() { return IngressPlugin::Entry{&boe_init, &boe_start, &boe_stop, &boe_destroy}; }

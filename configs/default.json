@@ -114,13 +114,29 @@
         "loop": true,
         "retransmit_capacity": 65536
     },
-    "boe": {
-        "port": 30000,
-        "bind": "0.0.0.0",
-        "heartbeat_ms": 1000,
-        "timeout_ms": 5000,
-        "poll_ms": 1,
-        "max_sessions": 64
-    },
-    "shards": 4
+    "shards": 4,
+    "ingress": [
+        {
+            "type": "boe",
+            "port": 30000,
+            "bind": "0.0.0.0",
+            "heartbeat_ms": 1000,
+            "timeout_ms": 5000,
+            "poll_ms": 1,
+            "max_sessions": 64
+        },
+        {
+            "type": "plugin",
+            "path": "gateway/build/jsonl_ingress.dylib",
+            "config": {
+                "port": 30020,
+                "bind": "0.0.0.0"
+            }
+        }
+    ],
+    "ingress_core": {
+        "cmd_ring": 65536,
+        "report_ring": 8192,
+        "max_sessions": 256
+    }
 }

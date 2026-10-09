@@ -60,14 +60,40 @@ each packet twice. For same-host testing set `"interface": "127.0.0.1"` in
 the config's `feed` block and pass `127.0.0.1` as `feed_dump`'s third
 argument. Clients must drop duplicates by sequence number regardless.
 
+## Ingress adapters
+
+Order entry is pluggable. The exchange exposes a C API
+([`include/ingress/api.h`](include/ingress/api.h), documented in
+[`docs/ingress-api.md`](../docs/ingress-api.md)); anything that speaks it
+can be an ingress: the built-in BOE gateway, the JSON-lines adapter in
+`plugins/jsonl_ingress.cpp` (built as a shared library and loaded from the
+config), or your own. The config's `ingress` list says what runs:
+
+```json
+"ingress": [
+  { "type": "boe", "port": 30000 },
+  { "type": "plugin", "path": "gateway/build/jsonl_ingress.dylib", "config": { "port": 30020 } }
+]
+```
+
+Behind the API, `src/ingress/core.cpp` owns sessions, one lock-free
+multi-producer command queue per shard, one report queue per session, and
+order-to-session routing on the shard engine threads. Each adapter runs on
+its own threads, so adding adapters adds ingress capacity.
+
+Try the JSON-lines adapter: `python3 tools/jsonl_client.py demo`.
+
 ## Layout
 
 ```
 include/protocol/   feed.hpp, moldudp64.hpp, boe.hpp   packed wire structs
+include/ingress/    api.h (the C ingress API), core.hpp, plugin.hpp
 include/            udp_multicast.hpp, feed_encoder.hpp, feed_framer.hpp,
-                    feed_publisher.hpp
-src/                feed_publisher.cpp, exchange_server.cpp
-tools/              feed_dump.cpp
+                    feed_publisher.hpp, boe_server.hpp
+src/                feed_publisher.cpp, boe_server.cpp, exchange_server.cpp
+src/ingress/        core.cpp (sessions, queues, routing), plugin.cpp (dlopen)
+plugins/            jsonl_ingress.cpp, the worked example adapter
+tools/              feed_dump.cpp, flowgen.cpp, boe_client.py, jsonl_client.py
 tests/              protocol_test, spsc_ring_test, feed_reconstruct_test
 ```
 
@@ -81,5 +107,6 @@ The lock-free SPSC ring the engine's `EventSink` uses is
 - **publisher thread**: drains the event sink, pairs Execute + TradeFill
   into one Order Executed, frames MoldUDP64 packets, multicasts, heartbeats,
   repeats the Stock Directory.
-- **gateway thread**: BOE TCP sessions; decodes into a command ring toward
-  the engine, encodes execution reports from a report ring back to sessions.
+- **adapter threads**: each ingress adapter runs its own (the BOE gateway
+  is one poll thread); they submit into per-shard lock-free queues and poll
+  per-session report queues through the ingress API.

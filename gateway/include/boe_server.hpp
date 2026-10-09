@@ -4,8 +4,9 @@
 // thread and turns OrderReports from it into execution reports.
 // Contract: docs/protocol/boe-v1.md
 #include "commands.hpp"
+#include "ingress/api.h"
+#include "ingress/plugin.hpp"
 #include "protocol/boe.hpp"
-#include "spsc_ring.hpp"
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -37,12 +38,13 @@ class BoeServer {
   public:
     using SymbolMap = std::unordered_map<std::string, SymbolId>;
 
-    // One command ring and one report ring per shard, indexed alike.
-    // symbol_shard maps symbol_id -> shard; order ids carry their shard in
-    // the top 8 bits (shard_of in common.hpp).
-    BoeServer(BoeConfig cfg, std::vector<SpscRing<InboundCommand> *> commands,
-              std::vector<SpscRing<OrderReport> *> reports, SymbolMap symbols,
-              std::vector<std::uint8_t> symbol_shard);
+    // Built on the ingress API: every TCP session is an exchange session.
+    BoeServer(BoeConfig cfg, const mktsim_exchange_api *api, mktsim_exchange *ex);
+
+    // Entry points so the exchange can load BOE like any other adapter.
+    static IngressPlugin::Entry entry();
+    // The most recently constructed instance, for the server's stats line.
+    static BoeServer *last() { return last_; }
     ~BoeServer();
 
     void start();
@@ -55,6 +57,7 @@ class BoeServer {
     };
     struct Session {
         int fd = -1;
+        mktsim_session *xs = nullptr; // exchange session
         std::uint32_t gen = 0; // bumps on reuse so stale ids don't match
         bool logged_in = false;
         std::uint32_t next_in_seq = 1;
@@ -95,7 +98,7 @@ class BoeServer {
     void handle_cancel(std::uint32_t si, const boe::CancelOrder &m);
     void handle_modify(std::uint32_t si, const boe::ModifyOrder &m);
     void drain_reports();
-    bool push_command(const InboundCommand &c, std::size_t shard);
+    bool push_command(std::uint32_t si, const mktsim_order_req &req);
     void on_report(const OrderReport &r);
 
     template <typename Body>
@@ -108,11 +111,9 @@ class BoeServer {
     std::uint64_t now_ns() const;
 
     BoeConfig cfg_;
-    std::vector<SpscRing<InboundCommand> *> commands_;
-    std::vector<SpscRing<OrderReport> *> reports_;
-    SymbolMap symbols_;
-    std::vector<std::uint8_t> symbol_shard_;
-    std::vector<std::string> tickers_; // symbol_id -> padded ticker
+    const mktsim_exchange_api *api_;
+    mktsim_exchange *ex_;
+    std::vector<std::string> tickers_by_id_; // symbol_id -> padded ticker
     BoeStats stats_;
 
     int listen_fd_ = -1;
@@ -124,4 +125,5 @@ class BoeServer {
 
     std::thread thread_;
     std::atomic<bool> running_{false};
+    static BoeServer *last_;
 };

@@ -5,8 +5,9 @@
 // order flow is expected over BOE (see tools/flowgen.cpp).
 #include "exchange.hpp"
 #include "boe_server.hpp"
-#include "engine_loop.hpp"
 #include "feed_publisher.hpp"
+#include "ingress/core.hpp"
+#include "ingress/plugin.hpp"
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -40,20 +41,6 @@ static FeedConfig feed_config_from(const json &cfg) {
     if (j.contains("retransmit_capacity"))
         f.retransmit_capacity = j["retransmit_capacity"].get<std::size_t>();
     return f;
-}
-
-static BoeConfig boe_config_from(const json &cfg) {
-    BoeConfig b;
-    if (!cfg.contains("boe"))
-        return b;
-    const json &j = cfg["boe"];
-    if (j.contains("port")) b.port = j["port"].get<std::uint16_t>();
-    if (j.contains("bind")) b.bind = j["bind"].get<std::string>();
-    if (j.contains("heartbeat_ms")) b.heartbeat_ms = j["heartbeat_ms"].get<std::uint32_t>();
-    if (j.contains("timeout_ms")) b.timeout_ms = j["timeout_ms"].get<std::uint32_t>();
-    if (j.contains("poll_ms")) b.poll_ms = j["poll_ms"].get<std::uint32_t>();
-    if (j.contains("max_sessions")) b.max_sessions = j["max_sessions"].get<std::size_t>();
-    return b;
 }
 
 // Random order flow: a slow random walk per symbol, limit orders scattered
@@ -137,29 +124,23 @@ int main(int argc, char **argv) {
     std::sort(ids.begin(), ids.end());
 
 
-    // One engine thread per shard. Each owns its EngineLoop, its command and
-    // report rings, and a synthetic generator restricted to its symbols, so
-    // no shard is ever touched by two threads.
-    const std::size_t shards = ex.NumShards();
-    std::vector<std::unique_ptr<SpscRing<InboundCommand>>> commands;
-    std::vector<std::unique_ptr<SpscRing<OrderReport>>> reports;
-    std::vector<SpscRing<InboundCommand> *> cmd_ptrs;
-    std::vector<SpscRing<OrderReport> *> rep_ptrs;
+    // Ingress: the order-entry core implements the C API; adapters (built-in
+    // BOE, or shared libraries) are listed in the config's "ingress" array.
+    OrderEntryCore::Config ccfg;
+    if (cfg.contains("ingress_core")) {
+        const json &j = cfg["ingress_core"];
+        if (j.contains("cmd_ring")) ccfg.cmd_ring = j["cmd_ring"].get<std::size_t>();
+        if (j.contains("report_ring")) ccfg.report_ring = j["report_ring"].get<std::size_t>();
+        if (j.contains("max_sessions")) ccfg.max_sessions = j["max_sessions"].get<std::size_t>();
+    }
+    OrderEntryCore core(ex, ccfg);
+    const std::size_t shards = core.num_shards();
     std::vector<EventSink *> sinks;
     std::vector<std::vector<SymbolId>> shard_syms(shards);
-    std::vector<std::uint8_t> symbol_shard(ids.empty() ? 0 : ids.back() + 1, 0);
-    for (std::size_t i = 0; i < shards; ++i) {
-        commands.push_back(std::make_unique<SpscRing<InboundCommand>>(1 << 16));
-        reports.push_back(std::make_unique<SpscRing<OrderReport>>(1 << 16));
-        cmd_ptrs.push_back(commands.back().get());
-        rep_ptrs.push_back(reports.back().get());
+    for (std::size_t i = 0; i < shards; ++i)
         sinks.push_back(&ex.Sink(i));
-    }
-    for (SymbolId id : ids) {
-        std::uint8_t sh = ex.ShardOf(id);
-        symbol_shard[id] = sh;
-        shard_syms[sh].push_back(id);
-    }
+    for (SymbolId id : ids)
+        shard_syms[ex.ShardOf(id)].push_back(id);
 
     FeedConfig fcfg = feed_config_from(cfg);
     fcfg.capture_path = capture;
@@ -168,10 +149,47 @@ int main(int argc, char **argv) {
     std::fprintf(stderr, "exchange_server: feed on %s:%u, %zu symbols, %zu shard(s), %.0f orders/s\n",
                  fcfg.group.c_str(), fcfg.port, ids.size(), shards, rate);
 
-    BoeConfig bcfg = boe_config_from(cfg);
-    BoeServer boe(bcfg, cmd_ptrs, rep_ptrs, ex.Symbols(), symbol_shard);
-    boe.start();
-    std::fprintf(stderr, "exchange_server: BOE order entry on %s:%u\n", bcfg.bind.c_str(), bcfg.port);
+    // Adapters. Without an "ingress" list, the legacy "boe" block is used.
+    std::vector<std::unique_ptr<IngressPlugin>> adapters;
+    json ingress = json::array();
+    if (cfg.contains("ingress") && cfg["ingress"].is_array()) {
+        ingress = cfg["ingress"];
+    } else {
+        json b = json::object();
+        if (cfg.contains("boe")) b = cfg["boe"];
+        b["type"] = "boe";
+        ingress.push_back(b);
+    }
+    for (const json &spec : ingress) {
+        std::string type = spec.value("type", "boe");
+        if (spec.value("enabled", true) == false)
+            continue;
+        std::unique_ptr<IngressPlugin> p;
+        try {
+            if (type == "boe")
+                p = IngressPlugin::builtin("boe", BoeServer::entry());
+            else if (type == "plugin")
+                p = IngressPlugin::load(spec.at("path").get<std::string>());
+            else {
+                std::fprintf(stderr, "exchange_server: unknown ingress type %s\n", type.c_str());
+                return 2;
+            }
+        } catch (const std::exception &e) {
+            std::fprintf(stderr, "exchange_server: %s\n", e.what());
+            return 2;
+        }
+        json acfg = spec.contains("config") ? spec["config"] : spec;
+        if (!p->init(core.api(), core.handle(), acfg.dump())) {
+            std::fprintf(stderr, "exchange_server: ingress %s failed to init\n", p->name().c_str());
+            return 2;
+        }
+        adapters.push_back(std::move(p));
+    }
+    for (auto &p : adapters)
+        if (!p->start()) {
+            std::fprintf(stderr, "exchange_server: ingress %s failed to start\n", p->name().c_str());
+            return 2;
+        }
 
     using clock = std::chrono::steady_clock;
     const auto start = clock::now();
@@ -184,12 +202,11 @@ int main(int argc, char **argv) {
 
     for (std::size_t sh = 0; sh < shards; ++sh) {
         threads.emplace_back([&, sh] {
-            EngineLoop loop(ex, sh, *commands[sh], *reports[sh]);
             FlowGenerator gen(ex, shard_syms[sh], 42 + sh);
             std::uint64_t orders = 0, last_live = 0;
             const bool generate = rate > 0 && !shard_syms[sh].empty();
             while (!stop.load(std::memory_order_relaxed)) {
-                bool worked = loop.pump() > 0;
+                bool worked = core.pump(sh) > 0;
                 if (generate) {
                     double elapsed_ns = std::chrono::duration<double, std::nano>(clock::now() - start).count();
                     if (orders * ns_per_order <= elapsed_ns) {
@@ -223,7 +240,7 @@ int main(int argc, char **argv) {
             std::fprintf(stderr,
                          "[%6.1fs] orders=%llu live=%llu | feed msgs=%llu pkts=%llu hb=%llu "
                          "next_seq=%llu drops=%llu unpaired=%llu send_err=%llu errno=%d | "
-                         "boe sess=%llu in=%llu rej=%llu out=%llu\n",
+                         "ingress sess=%llu in=%llu busy=%llu out=%llu drops=%llu\n",
                          elapsed_ns / 1e9, (unsigned long long)total_orders.load(),
                          (unsigned long long)total_live.load(),
                          (unsigned long long)s.messages.load(), (unsigned long long)s.packets.load(),
@@ -231,10 +248,11 @@ int main(int argc, char **argv) {
                          (unsigned long long)s.engine_drops.load(),
                          (unsigned long long)s.unpaired_executes.load(),
                          (unsigned long long)s.send_errors.load(), s.last_errno.load(),
-                         (unsigned long long)boe.stats().sessions.load(),
-                         (unsigned long long)(boe.stats().orders_in.load() + boe.stats().cancels_in.load() + boe.stats().modifies_in.load()),
-                         (unsigned long long)boe.stats().rejects.load(),
-                         (unsigned long long)boe.stats().reports_out.load());
+                         (unsigned long long)core.stats().sessions_open.load(),
+                         (unsigned long long)core.stats().submitted.load(),
+                         (unsigned long long)core.stats().busy.load(),
+                         (unsigned long long)core.stats().reports.load(),
+                         (unsigned long long)core.stats().report_drops.load());
         }
     }
     stop.store(true);
@@ -263,7 +281,9 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "exchange_server: wrote %s\n", path.c_str());
         }
     }
-    boe.stop();
+    for (auto &p : adapters)
+        p->stop();
+    adapters.clear();
     pub.stop();
     const auto &s = pub.stats();
     std::fprintf(stderr, "exchange_server: done. orders=%llu msgs=%llu pkts=%llu drops=%llu\n",
