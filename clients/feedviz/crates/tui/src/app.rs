@@ -289,6 +289,7 @@ impl App {
             KeyCode::Char(' ') => self.paused = !self.paused,
             KeyCode::Char('m') => self.screen = Screen::Market,
             KeyCode::Char('t') => crate::theme::next(),
+            KeyCode::Char('r') => self.client.request_snapshot(),
             KeyCode::Char('e') => self.screen = Screen::Events,
             KeyCode::Char('i') => self.interval_idx = (self.interval_idx + 1) % feed_client::INTERVALS.len(),
             KeyCode::Char(c @ '1'..='5') => {

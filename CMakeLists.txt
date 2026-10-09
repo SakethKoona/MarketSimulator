@@ -34,15 +34,11 @@ add_executable(engine_bench ${ENGINE_DIR}/bench/bench_main.cpp)
 target_link_libraries(engine_bench engine)
 set_target_properties(engine_bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/engine)
 
-# The mktsim CLI uses mach-o/dyld.h for its self-path lookup; macOS only
-# until it grows a Linux path.
-if(APPLE)
-  file(GLOB CLI_SOURCES ${ENGINE_DIR}/cli/*.cpp)
-  add_executable(mktsim ${CLI_SOURCES})
-  target_include_directories(mktsim PRIVATE ${ENGINE_DIR}/cli ${CMAKE_SOURCE_DIR}/gateway/include)
-  target_link_libraries(mktsim engine)
-  set_target_properties(mktsim PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/engine)
-endif()
+file(GLOB CLI_SOURCES ${ENGINE_DIR}/cli/*.cpp)
+add_executable(mktsim ${CLI_SOURCES})
+target_include_directories(mktsim PRIVATE ${ENGINE_DIR}/cli ${CMAKE_SOURCE_DIR}/gateway/include)
+target_link_libraries(mktsim engine)
+set_target_properties(mktsim PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/engine)
 
 # ---------------------------------------------------------------- gateway
 set(GW_DIR ${CMAKE_SOURCE_DIR}/gateway)
@@ -50,7 +46,9 @@ add_library(gateway STATIC
   ${GW_DIR}/src/feed_publisher.cpp
   ${GW_DIR}/src/boe_server.cpp
   ${GW_DIR}/src/ingress/core.cpp
-  ${GW_DIR}/src/ingress/plugin.cpp)
+  ${GW_DIR}/src/ingress/plugin.cpp
+  ${GW_DIR}/src/retransmit_server.cpp
+  ${GW_DIR}/src/snapshot_service.cpp)
 target_include_directories(gateway PUBLIC ${GW_DIR}/include)
 target_link_libraries(gateway PUBLIC engine ${CMAKE_DL_LIBS})
 

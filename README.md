@@ -68,6 +68,10 @@ Place an order yourself with `python3 gateway/tools/boe_client.py demo`, or
   SPSC ring that drops and counts rather than stalls; orders arrive through
   per-shard lock-free MPMC queues; the publisher skips sequence numbers on
   overflow so clients see a gap instead of a wrong book.
+- **Clients recover.** A gap is filled from the TCP retransmit server while
+  live packets are held back; a late joiner or an unrecoverable gap loads
+  the books from the snapshot server and gates older messages by engine
+  sequence. feedviz heals 1,000 forced gaps in four seconds at full rate.
 - **Ingress is an API, not a protocol.** Adapters are shared libraries
   against one C header, loaded from config; BOE is just the first one.
 - **Measured** on one laptop over loopback, 3 shards: 4 BOE sessions at
@@ -77,12 +81,12 @@ Place an order yourself with `python3 gateway/tools/boe_client.py demo`, or
 
 ## Status
 
-Working: engine, sharding, feed, BOE and JSON-lines ingress, the ingress
-plugin API, flowgen, feedviz with all three screens, captures and replay.
+Working: engine, sharding, feed with retransmission and snapshot servers,
+BOE and JSON-lines ingress, the ingress plugin API, flowgen, feedviz with
+all three screens and gap recovery, captures and replay.
 
-Not yet: feed retransmission and snapshot servers (a client that misses
-packets or joins late reconstructs forward only), realistic order-flow
-profiles beyond rate presets, the agent environment and ABIDES bridge.
+Not yet: realistic order-flow profiles beyond rate presets, the TUI
+conflation pass, the agent environment and ABIDES bridge.
 
 If you installed the `mktsim` CLI before the `engine/` rename, rerun
 `make install` from `engine/` to refresh the symlink.

@@ -393,12 +393,16 @@ impl Book {
                 }
                 Applied::default()
             }
-            Message::SystemEvent(_) => Applied::default(),
+            Message::SystemEvent(_) | Message::SnapshotStart(_) | Message::SnapshotEnd(_) => Applied::default(),
         }
     }
 
     /// Side and resting price of a live order, if known.
     pub fn order(&self, id: u64) -> Option<Order> {
         self.orders.get(&id).copied()
+    }
+    /// Every live order, in no particular order.
+    pub fn orders(&self) -> impl Iterator<Item = (u64, Order)> + '_ {
+        self.orders.iter().map(|(id, o)| (*id, *o))
     }
 }

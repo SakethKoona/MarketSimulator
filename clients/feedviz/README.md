@@ -176,16 +176,28 @@ match, the Mold packet it arrived in, timing and the spec paragraph.
 symbol the best bid and ask, spread, last trade, volume, trades, orders,
 level counts and the top five levels. `seq` is `shard:sequence`.
 
+## Recovery
+
+Live mode talks to the exchange's retransmit and snapshot servers
+(`--exchange-host`, `--retransmit-port 30002`, `--snapshot-port 30003`).
+On start it loads a full snapshot so a late joiner has complete books
+(`--no-snapshot` to skip). On a gap it holds live packets back, fetches
+the missing range, applies it, then drains the buffer; if the range is
+gone it loads a snapshot instead and gates messages the snapshot already
+covers by `book_seq`. `r` forces a snapshot reload. The health panels show
+recovered gaps, snapshots, failures and the SYNCING state; `--test-drop N`
+drops every Nth live packet to watch it work. `FEEDVIZ_DEBUG=1` traces the
+state machine to stderr.
+
 ## What to expect
 
 - **Joining mid-session** shows tickers as `#id` until the next Stock
-  Directory (every 2 seconds) and counts `unknown=` for messages about
-  orders added before you joined. Both are expected until the snapshot
-  server exists; the books are correct from that point forward.
+  Directory (every 2 seconds). Books are complete as soon as the startup
+  snapshot lands, usually well under a second.
 - **Replaying a capture** reports latency as 0 (no receive timestamps) and
   ends with `ENDED` once the End of Session packet is applied.
-- **Gaps** set STALE and are counted; recovery via retransmission is the
-  next exchange-side feature.
+- **Gaps** set STALE until the retransmission or snapshot that heals them
+  lands, then clear it.
 
 ## Record a new fixture
 

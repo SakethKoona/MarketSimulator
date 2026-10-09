@@ -244,6 +244,8 @@ pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let clock = s.events.last().map(|e| fmt::time_ms(e.ts_ns)).unwrap_or_else(|| "--:--:--.---".into());
     let state = if app.paused {
         Span::styled(" ❚❚ PAUSED ", bold(th().pause_fg).bg(th().pause_bg))
+    } else if s.stats.recovering {
+        Span::styled(" ◌ SYNCING ", bold(th().pause_fg).bg(th().pause_bg))
     } else if app.replay && s.finished {
         Span::styled(" ■ ENDED ", bold(th().pause_fg).bg(th().pause_bg))
     } else if app.replay {

@@ -18,6 +18,8 @@ pub enum MsgType {
     OrderCancel = b'X',
     OrderDelete = b'D',
     OrderReplace = b'U',
+    SnapshotStart = b'Q',
+    SnapshotEnd = b'Z',
 }
 
 impl MsgType {
@@ -30,6 +32,8 @@ impl MsgType {
             b'X' => Self::OrderCancel,
             b'D' => Self::OrderDelete,
             b'U' => Self::OrderReplace,
+            b'Q' => Self::SnapshotStart,
+            b'Z' => Self::SnapshotEnd,
             _ => return None,
         })
     }
@@ -134,6 +138,38 @@ pub struct OrderReplace {
 }
 const _: () = assert!(core::mem::size_of::<OrderReplace>() == 42);
 
+/// Snapshot framing (feed-v1.md §5): the book for `symbol_id` as of
+/// `book_seq`, followed by `order_count` Add Orders and a Snapshot End.
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Unaligned, Clone, Copy, Debug)]
+#[repr(C, packed)]
+pub struct SnapshotStart {
+    pub ty: u8,
+    pub symbol_id: U32,
+    pub book_seq: U64,
+    pub order_count: U32,
+    pub ts_ns: U64,
+}
+const _: () = assert!(core::mem::size_of::<SnapshotStart>() == 25);
+
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Unaligned, Clone, Copy, Debug)]
+#[repr(C, packed)]
+pub struct SnapshotEnd {
+    pub ty: u8,
+    pub symbol_id: U32,
+    pub order_count: U32,
+    pub ts_ns: U64,
+}
+const _: () = assert!(core::mem::size_of::<SnapshotEnd>() == 17);
+
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Unaligned, Clone, Copy, Debug)]
+#[repr(C, packed)]
+pub struct SnapshotRequest {
+    pub session: [u8; 10],
+    pub symbol_id: U32,
+}
+const _: () = assert!(core::mem::size_of::<SnapshotRequest>() == 14);
+pub const ALL_SYMBOLS: u32 = 0xFFFF_FFFF;
+
 /// A borrowed view of one decoded message.
 #[derive(Clone, Copy, Debug)]
 pub enum Message<'a> {
@@ -144,6 +180,8 @@ pub enum Message<'a> {
     OrderCancel(&'a OrderCancel),
     OrderDelete(&'a OrderDelete),
     OrderReplace(&'a OrderReplace),
+    SnapshotStart(&'a SnapshotStart),
+    SnapshotEnd(&'a SnapshotEnd),
 }
 
 impl<'a> Message<'a> {
@@ -156,6 +194,8 @@ impl<'a> Message<'a> {
             Message::OrderCancel(_) => MsgType::OrderCancel,
             Message::OrderDelete(_) => MsgType::OrderDelete,
             Message::OrderReplace(_) => MsgType::OrderReplace,
+            Message::SnapshotStart(_) => MsgType::SnapshotStart,
+            Message::SnapshotEnd(_) => MsgType::SnapshotEnd,
         }
     }
     /// Symbol this message is about, if any.
@@ -168,7 +208,21 @@ impl<'a> Message<'a> {
             Message::OrderCancel(m) => m.symbol_id.get(),
             Message::OrderDelete(m) => m.symbol_id.get(),
             Message::OrderReplace(m) => m.symbol_id.get(),
+            Message::SnapshotStart(m) => m.symbol_id.get(),
+            Message::SnapshotEnd(m) => m.symbol_id.get(),
         })
+    }
+    /// Engine sequence carried by book messages; 0 for the others.
+    pub fn book_seq(&self) -> u64 {
+        match self {
+            Message::AddOrder(m) => m.book_seq.get(),
+            Message::OrderExecuted(m) => m.book_seq.get(),
+            Message::OrderCancel(m) => m.book_seq.get(),
+            Message::OrderDelete(m) => m.book_seq.get(),
+            Message::OrderReplace(m) => m.book_seq.get(),
+            Message::SnapshotStart(m) => m.book_seq.get(),
+            _ => 0,
+        }
     }
     pub fn ts_ns(&self) -> u64 {
         match self {
@@ -179,6 +233,8 @@ impl<'a> Message<'a> {
             Message::OrderCancel(m) => m.ts_ns.get(),
             Message::OrderDelete(m) => m.ts_ns.get(),
             Message::OrderReplace(m) => m.ts_ns.get(),
+            Message::SnapshotStart(m) => m.ts_ns.get(),
+            Message::SnapshotEnd(m) => m.ts_ns.get(),
         }
     }
 }
@@ -205,6 +261,8 @@ pub fn decode(payload: &[u8]) -> Result<Message<'_>, DecodeError> {
         MsgType::OrderCancel => Message::OrderCancel(cast(ty, payload)?),
         MsgType::OrderDelete => Message::OrderDelete(cast(ty, payload)?),
         MsgType::OrderReplace => Message::OrderReplace(cast(ty, payload)?),
+        MsgType::SnapshotStart => Message::SnapshotStart(cast(ty, payload)?),
+        MsgType::SnapshotEnd => Message::SnapshotEnd(cast(ty, payload)?),
     })
 }
 
@@ -231,6 +289,6 @@ mod tests {
             other => panic!("decoded {other:?}"),
         }
         assert_eq!(decode(&bytes[..41]).unwrap_err(), DecodeError::BadLength { ty: b'A', got: 41, expected: 42 });
-        assert_eq!(decode(&[0x51]).unwrap_err(), DecodeError::UnknownType(0x51));
+        assert_eq!(decode(&[0x59]).unwrap_err(), DecodeError::UnknownType(0x59));
     }
 }

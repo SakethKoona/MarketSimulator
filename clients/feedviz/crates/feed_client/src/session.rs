@@ -2,10 +2,34 @@
 //! events, per-type counts. Owns the books for every symbol.
 
 use crate::book::{Applied, Book};
+use crate::ingest::{KIND_LIVE, KIND_RETRANSMIT, KIND_RETRANSMIT_DONE, KIND_SNAPSHOT, KIND_SNAPSHOT_DONE};
+use crate::recovery::RecoveryRequest;
 use protocol::feed::{Message, MsgType};
 use protocol::mold::PacketIter;
 use protocol::DecodeError;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
+
+fn debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("FEEDVIZ_DEBUG").is_some())
+}
+
+/// Live packets buffered while recovering, at most this many.
+const MAX_PENDING: usize = 65536;
+const RECOVERY_TIMEOUT: Duration = Duration::from_secs(4);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recovery {
+    None,
+    /// Waiting for a retransmission to bring next_seq up to `upto`.
+    Retransmit {
+        upto: u64,
+    },
+    /// Loading a snapshot; live packets are buffered.
+    Snapshot,
+}
 
 pub const MAX_EVENTS: usize = 16384;
 pub const MAX_RAW: usize = 54;
@@ -84,6 +108,11 @@ pub struct SessionStats {
     pub version: u16,
     /// Latency samples (receive time minus message ts), nanoseconds.
     pub latency_ns: Vec<u64>,
+    pub recovering: bool,
+    pub recovered_gaps: u64,
+    pub snapshots_loaded: u64,
+    pub recovery_failed: u64,
+    pub gated: u64, // messages skipped because a snapshot already covered them
 }
 
 impl SessionStats {
@@ -96,6 +125,7 @@ impl SessionStats {
             MsgType::OrderCancel => 4,
             MsgType::OrderDelete => 5,
             MsgType::OrderReplace => 6,
+            MsgType::SnapshotStart | MsgType::SnapshotEnd => 0,
         }
     }
 }
@@ -110,6 +140,21 @@ pub struct Session {
     synced: bool,
     /// Set when a gap was seen and books may be missing orders.
     pub stale: bool,
+    pub recovery: Recovery,
+    recovery_since: Option<Instant>,
+    /// Live packets held back while recovering, by first sequence.
+    pending: BTreeMap<u64, Vec<u8>>,
+    /// Per symbol: apply only messages with book_seq above this.
+    gate: HashMap<u32, u64>,
+    requester: Option<Sender<RecoveryRequest>>,
+    /// Id of the outstanding recovery request; answers to others are ignored.
+    recovery_id: u64,
+}
+
+impl Default for Recovery {
+    fn default() -> Self {
+        Recovery::None
+    }
 }
 
 impl Session {
@@ -117,9 +162,201 @@ impl Session {
         Self::default()
     }
 
-    /// Applies one raw packet. `recv_ns` is the wall-clock receive time for
-    /// latency measurement, or 0 to skip it (replay).
+    /// A session that can ask a recovery thread for retransmits/snapshots.
+    pub fn with_recovery(tx: Sender<RecoveryRequest>) -> Self {
+        Session { requester: Some(tx), ..Default::default() }
+    }
+
+    pub fn can_recover(&self) -> bool {
+        self.requester.is_some()
+    }
+
+    /// Start loading a full snapshot now (late join, or `r` in the UI).
+    pub fn begin_snapshot(&mut self) {
+        if self.recovery == Recovery::Snapshot {
+            return;
+        }
+        if let Some(tx) = &self.requester {
+            self.recovery_id += 1;
+            if tx.send(RecoveryRequest::Snapshot { id: self.recovery_id, symbol: protocol::feed::ALL_SYMBOLS }).is_ok()
+            {
+                self.recovery = Recovery::Snapshot;
+                self.recovery_since = Some(Instant::now());
+                self.stats.recovering = true;
+            }
+        }
+    }
+
+    /// Call periodically from the book thread: gives up on a recovery that
+    /// has taken too long so the display is not frozen forever.
+    pub fn tick(&mut self) {
+        if self.recovery == Recovery::None {
+            return;
+        }
+        if let Some(t0) = self.recovery_since {
+            if t0.elapsed() > RECOVERY_TIMEOUT {
+                self.stats.recovery_failed += 1;
+                self.finish_recovery(false);
+            }
+        }
+    }
+
+    fn finish_recovery(&mut self, success: bool) {
+        if debug() {
+            eprintln!("[rec] finish success {} next {} pending {}", success, self.stats.next_seq, self.pending.len());
+        }
+        self.recovery = Recovery::None;
+        self.recovery_since = None;
+        self.stats.recovering = false;
+        if success {
+            self.stale = false;
+        }
+        // Apply everything held back, in order. After a snapshot the gate
+        // makes replaying already-covered messages harmless. If a packet in
+        // the buffer reveals another gap, recovery restarts and the rest of
+        // the buffer is kept for after that one.
+        let pending = std::mem::take(&mut self.pending);
+        for (seq, bytes) in pending {
+            if self.recovery != Recovery::None {
+                self.pending.entry(seq).or_insert(bytes);
+                continue;
+            }
+            self.apply_packet(&bytes, 0);
+        }
+    }
+
+    /// Entry point for every packet from the rings. For recovery kinds,
+    /// `recv_ns` carries the request id the packet answers.
+    pub fn on_packet_kind(&mut self, kind: u8, packet: &[u8], ok: bool, recv_ns: u64) {
+        if kind != KIND_LIVE && recv_ns != 0 && recv_ns != self.recovery_id {
+            return; // answer to a superseded request
+        }
+        match kind {
+            KIND_LIVE => self.on_packet(packet, recv_ns),
+            KIND_RETRANSMIT => {
+                if debug() {
+                    if let Ok(it) = PacketIter::new(packet) {
+                        eprintln!(
+                            "[rec] retransmit pkt id {} seq {} count {} (next {})",
+                            recv_ns,
+                            it.header().seq(),
+                            it.header().count(),
+                            self.stats.next_seq
+                        );
+                    }
+                }
+                self.apply_packet(packet, 0);
+                self.drain_pending();
+                if let Recovery::Retransmit { upto } = self.recovery {
+                    if self.stats.next_seq >= upto {
+                        self.stats.recovered_gaps += 1;
+                        self.finish_recovery(true);
+                    }
+                }
+            }
+            KIND_RETRANSMIT_DONE => {
+                if debug() {
+                    eprintln!(
+                        "[rec] retransmit done id {} ok {} next {} state {:?}",
+                        recv_ns, ok, self.stats.next_seq, self.recovery
+                    );
+                }
+                if let Recovery::Retransmit { upto } = self.recovery {
+                    if self.stats.next_seq < upto {
+                        // The server could not supply the range (too old, or
+                        // the fetch failed): fall back to a snapshot.
+                        let _ = ok;
+                        self.recovery = Recovery::None;
+                        self.begin_snapshot();
+                        if self.recovery != Recovery::Snapshot {
+                            self.stats.recovery_failed += 1;
+                            self.finish_recovery(false);
+                        }
+                    }
+                }
+            }
+            KIND_SNAPSHOT => self.apply_snapshot_packet(packet),
+            KIND_SNAPSHOT_DONE => {
+                if self.recovery == Recovery::Snapshot {
+                    if ok {
+                        self.stats.snapshots_loaded += 1;
+                        // Resume from whatever live packet comes first.
+                        if let Some((&first, _)) = self.pending.iter().next() {
+                            self.stats.next_seq = first;
+                        }
+                        self.finish_recovery(true);
+                    } else {
+                        self.stats.recovery_failed += 1;
+                        self.finish_recovery(false);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn drain_pending(&mut self) {
+        loop {
+            let Some((&first, _)) = self.pending.iter().next() else { break };
+            if first > self.stats.next_seq {
+                break;
+            }
+            let bytes = self.pending.remove(&first).unwrap();
+            self.apply_packet(&bytes, 0);
+        }
+    }
+
+    fn apply_snapshot_packet(&mut self, packet: &[u8]) {
+        let Ok(iter) = PacketIter::new(packet) else { return };
+        for item in iter {
+            let Ok((_, payload)) = item else { break };
+            let Ok(msg) = protocol::decode(payload) else { continue };
+            match msg {
+                Message::SnapshotStart(st) => {
+                    let sym = st.symbol_id.get();
+                    let ticker = self.books.get(&sym).map(|b| b.ticker.clone()).unwrap_or_default();
+                    let mut b = Book::new(sym);
+                    b.ticker = ticker;
+                    self.books.insert(sym, b);
+                    self.gate.insert(sym, st.book_seq.get());
+                }
+                Message::AddOrder(_) => {
+                    if let Some(sym) = msg.symbol_id() {
+                        let b = self.books.entry(sym).or_insert_with(|| Book::new(sym));
+                        b.apply(&msg);
+                        b.last_book_seq = self.gate.get(&sym).copied().unwrap_or(0);
+                    }
+                }
+                Message::SnapshotEnd(_) => {}
+                _ => {}
+            }
+        }
+    }
+
+    /// Applies one live packet. `recv_ns` is the wall-clock receive time for
+    /// latency measurement, or 0 to skip it (replay). While recovering, live
+    /// packets are held back and applied once the gap is filled.
     pub fn on_packet(&mut self, packet: &[u8], recv_ns: u64) {
+        if self.recovery != Recovery::None {
+            if let Ok(it) = PacketIter::new(packet) {
+                let h = it.header();
+                if !h.is_heartbeat() && !h.is_end_of_session() {
+                    if self.pending.len() >= MAX_PENDING {
+                        self.stats.recovery_failed += 1;
+                        self.finish_recovery(false);
+                    } else {
+                        self.pending.entry(h.seq()).or_insert_with(|| packet.to_vec());
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+        }
+        self.apply_packet(packet, recv_ns);
+    }
+
+    fn apply_packet(&mut self, packet: &[u8], recv_ns: u64) {
         let iter = match PacketIter::new(packet) {
             Ok(it) => it,
             Err(_) => {
@@ -156,6 +393,11 @@ impl Session {
             }
         } else if seq > self.stats.next_seq {
             self.gap(seq);
+            if self.recovery != Recovery::None {
+                // Recovery started: hold this packet with the rest.
+                self.pending.entry(seq).or_insert_with(|| packet.to_vec());
+                return;
+            }
         }
         let skip = self.stats.next_seq.saturating_sub(seq);
         let count = h.count();
@@ -181,6 +423,22 @@ impl Session {
         self.stats.gaps += 1;
         self.stats.lost_messages += lost;
         self.stale = true;
+        // Ask for the missing range; the live packet that revealed the gap
+        // is applied by the caller and later ones are buffered.
+        if self.recovery == Recovery::None {
+            if let Some(tx) = &self.requester {
+                let count = lost.min(1000) as u16;
+                self.recovery_id += 1;
+                if tx
+                    .send(RecoveryRequest::Retransmit { id: self.recovery_id, seq: self.stats.next_seq, count })
+                    .is_ok()
+                {
+                    self.recovery = Recovery::Retransmit { upto: seq };
+                    self.recovery_since = Some(Instant::now());
+                    self.stats.recovering = true;
+                }
+            }
+        }
         // A marker row in the event log: ty '!' with the range in seq/qty.
         self.push_event(EventRecord {
             seq: self.stats.next_seq,
@@ -210,6 +468,15 @@ impl Session {
                 return;
             }
         };
+        if let Some(sym) = msg.symbol_id() {
+            if let Some(&as_of) = self.gate.get(&sym) {
+                let bs = msg.book_seq();
+                if bs != 0 && bs <= as_of {
+                    self.stats.gated += 1;
+                    return;
+                }
+            }
+        }
         self.stats.messages += 1;
         self.stats.by_type[SessionStats::type_index(msg.msg_type())] += 1;
         if recv_ns != 0 {

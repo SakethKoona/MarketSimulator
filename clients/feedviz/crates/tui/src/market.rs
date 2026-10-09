@@ -496,6 +496,7 @@ fn draw_health_strip(f: &mut Frame, app: &App, area: Rect) {
             Span::styled("   dups ", dim()),
             Span::styled(fmt::commas(s.stats.duplicates), fg(th().text)),
             Span::styled(if s.stale { "   STALE" } else { "" }, bold(th().red)),
+            Span::styled(if s.stats.recovering { "   SYNCING" } else { "" }, bold(th().amber)),
         ]),
     ];
     f.render_widget(Paragraph::new(lines), inner);

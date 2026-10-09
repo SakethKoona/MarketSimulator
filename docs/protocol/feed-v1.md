@@ -80,7 +80,14 @@ The server replies with one or more MoldUDP64 packets in the same framing as
 the multicast stream, then closes the connection. If the requested range is
 older than the server's buffer, it replies with a packet whose
 `message_count = 0` and whose `sequence_number` is the oldest it still has;
-the client must then resynchronise from a snapshot (section 5).
+the client must then resynchronise from a snapshot (section 5). A request
+for a sequence not yet published is answered the same way, with the next
+sequence to be published.
+
+**Recovering from a gap.** On detecting a gap the client should buffer live
+packets, request the missing range, apply the retransmitted messages, then
+drain the buffer in order. Messages are idempotent by sequence: a client
+that receives a sequence it has already applied drops it.
 
 ## 3. Messages
 
@@ -217,11 +224,52 @@ exactly. Across symbols the stream interleaves shards in no defined order.
 ## 5. Session bootstrap and snapshots
 
 At session start the exchange publishes: System Event `'O'`, then one Stock
-Directory per symbol, then order flow. Version 1 has no snapshot server, so a
-client that joins mid-session can only reconstruct from that point and should
-display its books as partial until it has observed every live order's Add.
-A Glimpse-style TCP snapshot server is planned for version 2 and will reuse
-the message formats above.
+Directory per symbol, then order flow. A client that joins later, or that
+falls too far behind for retransmission, loads the books from the snapshot
+server (default TCP port `30003`) and then applies the live stream.
+
+Request, 14 bytes:
+
+| size | type     | field     |
+|-----:|----------|-----------|
+| 10   | char[10] | session   |
+| 4    | u32      | symbol_id | `0xFFFFFFFF` for every symbol |
+
+The server replies with MoldUDP64 packets whose `sequence_number` is 0
+(snapshot packets carry no stream position), then closes the connection.
+For each symbol the packets contain, in order:
+
+### 5.1 Snapshot Start, type `'Q'`, 25 bytes
+
+| offset | size | type | field       |
+|-------:|-----:|------|-------------|
+| 0      | 1    | u8   | type `'Q'`  |
+| 1      | 4    | u32  | symbol_id   |
+| 5      | 8    | u64  | book_seq    | the book is as of this engine sequence |
+| 13     | 4    | u32  | order_count | Add Order messages that follow |
+| 17     | 8    | u64  | ts_ns       |
+
+### 5.2 One Add Order (§3.3) per resting order
+
+In price-time priority order, best level first, oldest order first within a
+level, each with `book_seq` equal to the Snapshot Start's.
+
+### 5.3 Snapshot End, type `'Z'`, 17 bytes
+
+| offset | size | type | field       |
+|-------:|-----:|------|-------------|
+| 0      | 1    | u8   | type `'Z'`  |
+| 1      | 4    | u32  | symbol_id   |
+| 5      | 4    | u32  | order_count |
+| 9      | 8    | u64  | ts_ns       |
+
+**Applying a snapshot.** Replace the symbol's book with the Add Orders, then
+resume the live stream and, for that symbol, ignore any message whose
+`book_seq` is less than or equal to the Snapshot Start's `book_seq`; apply
+everything above it. Because `book_seq` is strictly increasing within a
+shard, this is exact regardless of when the snapshot was taken relative to
+the multicast stream. A client should buffer live packets while a snapshot
+is loading rather than apply them to the old book.
 
 ## 6. Reference encodings
 

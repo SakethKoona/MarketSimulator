@@ -60,6 +60,17 @@ each packet twice. For same-host testing set `"interface": "127.0.0.1"` in
 the config's `feed` block and pass `127.0.0.1` as `feed_dump`'s third
 argument. Clients must drop duplicates by sequence number regardless.
 
+## Feed recovery
+
+Two TCP services sit beside the multicast feed (ports in the config's
+`feed` block): the **retransmit server** (default 30002) answers a
+`{session, seq, count}` request with the messages re-framed as Mold
+packets from the publisher's store (65,536 messages by default), and the
+**snapshot server** (default 30003) sends every resting order for one or
+all symbols as Add Orders between Snapshot Start/End messages, as of the
+shard's current `book_seq`, built on the shard thread between commands.
+Both are specified in `docs/protocol/feed-v1.md` §2.1 and §5.
+
 ## Ingress adapters
 
 Order entry is pluggable. The exchange exposes a C API

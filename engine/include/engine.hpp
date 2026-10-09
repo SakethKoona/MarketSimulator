@@ -44,6 +44,10 @@ class MatchingEngine {
         SymbolId s = symbolOf(id);
         return s == kNoSymbol ? std::nullopt : std::optional<SymbolId>(s);
     }
+    // The shard-tagged book sequence of the last event this engine
+    // published; a snapshot taken now is "as of" this value.
+    uint64_t LastBookSeq() const { return make_shard_id(shard_, nextBookSeq_ - 1); }
+
     bool Serves(SymbolId symId) const {
         return symId < books_vec_.size() && books_vec_[symId] != nullptr;
     }

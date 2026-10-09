@@ -8,6 +8,8 @@
 #include "feed_publisher.hpp"
 #include "ingress/core.hpp"
 #include "ingress/plugin.hpp"
+#include "retransmit_server.hpp"
+#include "snapshot_service.hpp"
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -146,8 +148,17 @@ int main(int argc, char **argv) {
     fcfg.capture_path = capture;
     FeedPublisher pub(sinks, table, fcfg);
     pub.start();
-    std::fprintf(stderr, "exchange_server: feed on %s:%u, %zu symbols, %zu shard(s), %.0f orders/s\n",
-                 fcfg.group.c_str(), fcfg.port, ids.size(), shards, rate);
+    std::uint16_t retx_port = 30002, snap_port = 30003;
+    if (cfg.contains("feed")) {
+        if (cfg["feed"].contains("retransmit_port")) retx_port = cfg["feed"]["retransmit_port"].get<std::uint16_t>();
+        if (cfg["feed"].contains("snapshot_port")) snap_port = cfg["feed"]["snapshot_port"].get<std::uint16_t>();
+    }
+    RetransmitServer retx(pub.store(), fcfg.session, retx_port);
+    SnapshotService snap(ex, fcfg.session, snap_port);
+    retx.start();
+    snap.start();
+    std::fprintf(stderr, "exchange_server: feed on %s:%u, retransmit tcp/%u, snapshot tcp/%u, %zu symbols, %zu shard(s), %.0f orders/s\n",
+                 fcfg.group.c_str(), fcfg.port, retx_port, snap_port, ids.size(), shards, rate);
 
     // Adapters. Without an "ingress" list, the legacy "boe" block is used.
     std::vector<std::unique_ptr<IngressPlugin>> adapters;
@@ -207,6 +218,7 @@ int main(int argc, char **argv) {
             const bool generate = rate > 0 && !shard_syms[sh].empty();
             while (!stop.load(std::memory_order_relaxed)) {
                 bool worked = core.pump(sh) > 0;
+                snap.serve_shard(sh);
                 if (generate) {
                     double elapsed_ns = std::chrono::duration<double, std::nano>(clock::now() - start).count();
                     if (orders * ns_per_order <= elapsed_ns) {
@@ -284,6 +296,8 @@ int main(int argc, char **argv) {
     for (auto &p : adapters)
         p->stop();
     adapters.clear();
+    snap.stop();
+    retx.stop();
     pub.stop();
     const auto &s = pub.stats();
     std::fprintf(stderr, "exchange_server: done. orders=%llu msgs=%llu pkts=%llu drops=%llu\n",

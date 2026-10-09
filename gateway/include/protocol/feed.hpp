@@ -18,6 +18,8 @@ enum class MsgType : std::uint8_t {
     OrderCancel = 'X',
     OrderDelete = 'D',
     OrderReplace = 'U',
+    SnapshotStart = 'Q',
+    SnapshotEnd = 'Z',
 };
 
 enum class SystemEventCode : std::uint8_t {
@@ -102,7 +104,32 @@ struct OrderReplace {
 };
 static_assert(sizeof(OrderReplace) == 42);
 
+struct SnapshotStart {
+    std::uint8_t type = static_cast<std::uint8_t>(MsgType::SnapshotStart);
+    std::uint32_t symbol_id;
+    std::uint64_t book_seq; // book is as of this engine sequence
+    std::uint32_t order_count;
+    std::uint64_t ts_ns;
+};
+static_assert(sizeof(SnapshotStart) == 25);
+
+struct SnapshotEnd {
+    std::uint8_t type = static_cast<std::uint8_t>(MsgType::SnapshotEnd);
+    std::uint32_t symbol_id;
+    std::uint32_t order_count;
+    std::uint64_t ts_ns;
+};
+static_assert(sizeof(SnapshotEnd) == 17);
+
+struct SnapshotRequest {
+    char session[10];
+    std::uint32_t symbol_id; // 0xFFFFFFFF = all
+};
+static_assert(sizeof(SnapshotRequest) == 14);
+
 #pragma pack(pop)
+
+constexpr std::uint32_t kAllSymbols = 0xFFFFFFFFu;
 
 // Largest feed message; used to size encode buffers.
 constexpr std::size_t kMaxMessageSize = sizeof(OrderExecuted);

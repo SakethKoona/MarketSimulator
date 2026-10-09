@@ -112,7 +112,9 @@
         "directory_s": 2,
         "ttl": 1,
         "loop": true,
-        "retransmit_capacity": 65536
+        "retransmit_capacity": 65536,
+        "retransmit_port": 30002,
+        "snapshot_port": 30003
     },
     "shards": 4,
     "ingress": [

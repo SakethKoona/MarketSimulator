@@ -46,6 +46,12 @@ fn parse_args() -> Result<Args> {
     let mut headless = false;
     let mut fps = 60u64;
     let mut theme_name: Option<String> = None;
+    let mut exchange_host = Ipv4Addr::new(127, 0, 0, 1);
+    let mut retransmit_port = 30002u16;
+    let mut snapshot_port = 30003u16;
+    let mut session = *b"MKTSIM0001";
+    let mut no_snapshot = false;
+    let mut drop_every = 0u32;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         let mut val = || it.next().ok_or_else(|| anyhow::anyhow!("missing value for {a}"));
@@ -60,6 +66,17 @@ fn parse_args() -> Result<Args> {
             "--fps" => fps = val()?.parse()?,
             "--headless" => headless = true,
             "--theme" => theme_name = Some(val()?),
+            "--exchange-host" => exchange_host = val()?.parse()?,
+            "--retransmit-port" => retransmit_port = val()?.parse()?,
+            "--snapshot-port" => snapshot_port = val()?.parse()?,
+            "--session" => {
+                let v = val()?;
+                let b = v.as_bytes();
+                session = *b"          ";
+                session[..b.len().min(10)].copy_from_slice(&b[..b.len().min(10)]);
+            }
+            "--no-snapshot" => no_snapshot = true,
+            "--test-drop" => drop_every = val()?.parse()?,
             "--list-themes" => {
                 for t in theme::THEMES.iter() {
                     println!("{:<18} {}", t.name, theme::blurb(t.name));
@@ -67,7 +84,7 @@ fn parse_args() -> Result<Args> {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                println!("feedviz [--group G] [--port P] [--iface IP] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS] [--theme NAME] [--list-themes]");
+                println!("feedviz [--group G] [--port P] [--iface IP] [--exchange-host IP] [--retransmit-port P] [--snapshot-port P] [--no-snapshot] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS] [--theme NAME] [--list-themes]");
                 std::process::exit(0);
             }
             other => bail!("unknown argument {other}"),
@@ -84,7 +101,19 @@ fn parse_args() -> Result<Args> {
     }
     let source = match replay {
         Some(path) => Source::Capture { path },
-        None => Source::Multicast { group, port, iface },
+        None => {
+            let mut src = Source::multicast(group, port, iface).with_recovery(
+                exchange_host,
+                retransmit_port,
+                snapshot_port,
+                session,
+            );
+            if let Source::Multicast { snapshot_on_start, drop_every: d, .. } = &mut src {
+                *snapshot_on_start = !no_snapshot;
+                *d = drop_every;
+            }
+            src
+        }
     };
     Ok(Args { source, depth, seconds, interval_ms, headless, fps: fps.clamp(5, 240) })
 }
@@ -323,10 +352,11 @@ fn run_tui(terminal: &mut ratatui::DefaultTerminal, client: FeedClient, args: &A
 
 fn print_frame(s: &Snapshot, elapsed: f64) {
     println!(
-        "[{:7.1}s] seq={} msgs={} ({}/s) pkts={} hb={} gaps={} lost={} dups={} ring={:.0}% drops={} lat p50={}µs p99={}µs{}{}",
+        "[{:7.1}s] seq={} msgs={} ({}/s) pkts={} hb={} gaps={} lost={} recovered={} snapshots={} failed={} gated={} dups={} ring={:.0}% drops={} lat p50={}µs p99={}µs{}{}{}",
         elapsed, s.stats.next_seq, s.stats.messages, s.msgs_per_sec, s.stats.packets, s.stats.heartbeats, s.stats.gaps,
-        s.stats.lost_messages, s.stats.duplicates, s.ring_occupancy * 100.0, s.ring_drops, s.latency_p50_ns / 1000,
-        s.latency_p99_ns / 1000, if s.stale { " STALE" } else { "" }, if s.stats.ended { " ENDED" } else { "" },
+        s.stats.lost_messages, s.stats.recovered_gaps, s.stats.snapshots_loaded, s.stats.recovery_failed, s.stats.gated,
+        s.stats.duplicates, s.ring_occupancy * 100.0, s.ring_drops, s.latency_p50_ns / 1000,
+        s.latency_p99_ns / 1000, if s.stale { " STALE" } else { "" }, if s.stats.recovering { " RECOVERING" } else { "" }, if s.stats.ended { " ENDED" } else { "" },
     );
     for sym in &s.symbols {
         let bb = sym.best_bid().map(|l| format!("{}x{}", l.qty, l.price)).unwrap_or_else(|| "-".into());
