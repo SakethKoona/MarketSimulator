@@ -111,6 +111,9 @@ impl FeedClient {
                         let mut last_rate = Instant::now();
                         let mut msgs_at_rate = 0u64;
                         let mut rate = 0u64;
+                        let mut rate_hist: std::collections::VecDeque<u64> = std::collections::VecDeque::new();
+                        let mut p99_hist: std::collections::VecDeque<u64> = std::collections::VecDeque::new();
+                        let mut p99_this_sec = 0u64;
                         loop {
                             let mut worked = false;
                             for _ in 0..256 {
@@ -127,11 +130,19 @@ impl FeedClient {
                                 rate = session.stats.messages - msgs_at_rate;
                                 msgs_at_rate = session.stats.messages;
                                 last_rate = now;
+                                if rate_hist.len() == 120 { rate_hist.pop_front(); }
+                                rate_hist.push_back(rate);
+                                if p99_hist.len() == 120 { p99_hist.pop_front(); }
+                                p99_hist.push_back(p99_this_sec);
+                                p99_this_sec = 0;
                             }
                             let src_done = source_done.load(Ordering::Acquire) && rx.is_empty();
                             if now - last_snap >= interval || src_done {
                                 revision += 1;
                                 let mut s = Snapshot::build(&mut session, depth, revision);
+                                p99_this_sec = p99_this_sec.max(s.latency_p99_ns);
+                                s.rate_hist = rate_hist.iter().copied().collect();
+                                s.p99_hist = p99_hist.iter().copied().collect();
                                 s.msgs_per_sec = rate;
                                 s.ring_occupancy = rx.slots() as f32 / capacity;
                                 s.ring_drops = drops.load(Ordering::Relaxed);

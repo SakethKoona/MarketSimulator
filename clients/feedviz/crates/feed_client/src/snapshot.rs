@@ -1,8 +1,11 @@
 //! What the UI thread sees: an immutable copy of everything it draws,
 //! rebuilt by the book thread a few dozen times a second.
 
-use crate::book::{Book, Trade};
-use crate::session::{Session, SessionStats};
+use crate::book::{Bar, Book, Trade};
+use crate::session::{EventRecord, Session, SessionStats};
+
+/// Events carried in each snapshot (the newest ones).
+pub const SNAPSHOT_EVENTS: usize = 2048;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LevelSnap {
@@ -29,6 +32,9 @@ pub struct SymbolSnapshot {
     pub book_seq: u64,
     pub out_of_order: u64,
     pub unknown_orders: u64,
+    pub bars: Vec<Bar>,
+    /// Newest last.
+    pub tape: Vec<Trade>,
 }
 
 impl SymbolSnapshot {
@@ -64,6 +70,11 @@ pub struct Snapshot {
     pub finished: bool,
     /// Monotonic counter; the UI can skip a redraw when it hasn't changed.
     pub revision: u64,
+    /// Newest events last, including gap markers.
+    pub events: Vec<EventRecord>,
+    /// Per-second histories, oldest first.
+    pub rate_hist: Vec<u64>,
+    pub p99_hist: Vec<u64>,
 }
 
 impl Snapshot {
@@ -91,6 +102,9 @@ impl Snapshot {
             ring_drops: 0,
             finished: false,
             revision,
+            events: session.events.iter().rev().take(SNAPSHOT_EVENTS).rev().copied().collect(),
+            rate_hist: Vec::new(),
+            p99_hist: Vec::new(),
         }
     }
 }
@@ -131,6 +145,8 @@ fn book_snapshot(b: &Book, depth: usize) -> SymbolSnapshot {
         book_seq: b.last_book_seq,
         out_of_order: b.out_of_order,
         unknown_orders: b.unknown_orders,
+        bars: b.bars.iter().copied().collect(),
+        tape: b.tape.iter().copied().collect(),
     }
 }
 

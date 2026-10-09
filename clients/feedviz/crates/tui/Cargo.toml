@@ -13,3 +13,5 @@ path = "src/main.rs"
 protocol = { path = "../protocol" }
 feed_client = { path = "../feed_client" }
 anyhow.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true

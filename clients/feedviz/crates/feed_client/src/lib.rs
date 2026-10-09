@@ -8,7 +8,7 @@ pub mod pipeline;
 pub mod session;
 pub mod snapshot;
 
-pub use book::{Book, Level, Side, Trade};
+pub use book::{Applied, Bar, Book, Level, Side, Trade};
 pub use pipeline::{Config, FeedClient, Source};
-pub use session::{Session, SessionStats};
+pub use session::{EventRecord, Session, SessionStats};
 pub use snapshot::{LevelSnap, Snapshot, SymbolSnapshot};
