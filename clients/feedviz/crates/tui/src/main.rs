@@ -76,7 +76,10 @@ fn parse_args() -> Result<Args> {
     if let Some(name) = theme_name {
         match theme::by_name(&name) {
             Some(i) => theme::set(i),
-            None => bail!("unknown theme {name}; one of {}", theme::THEMES.iter().map(|t| t.name).collect::<Vec<_>>().join(", ")),
+            None => bail!(
+                "unknown theme {name}; one of {}",
+                theme::THEMES.iter().map(|t| t.name).collect::<Vec<_>>().join(", ")
+            ),
         }
     }
     let source = match replay {
@@ -108,7 +111,9 @@ mod render_tests {
     #[test]
     fn both_screens_render_at_several_sizes() {
         let cap = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/capture.bin");
-        let client = FeedClient::start(Config { source: Source::Capture { path: cap }, depth: 40, ..Config::default() }).unwrap();
+        let client =
+            FeedClient::start(Config { source: Source::Capture { path: cap }, depth: 40, ..Config::default() })
+                .unwrap();
         while !client.is_finished() {
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -126,26 +131,42 @@ mod render_tests {
             }
             app.interval_idx = 0;
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            if w == 200 { dump(&term, "market_200x55"); }
-            if w == 140 { dump(&term, "market_140x40"); }
+            if w == 200 {
+                dump(&term, "market_200x55");
+            }
+            if w == 140 {
+                dump(&term, "market_140x40");
+            }
             app.screen = app::Screen::Events;
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            if w == 200 { dump(&term, "events_200x55"); }
-            if w == 140 { dump(&term, "events_140x40"); }
+            if w == 200 {
+                dump(&term, "events_200x55");
+            }
+            if w == 140 {
+                dump(&term, "events_140x40");
+            }
             term.draw(|f| ui::draw_classic(f, &app)).unwrap();
             // Select an execution and open the inspector.
             let e = app.snap.events.iter().rev().find(|e| e.ty == b'E' && e.applied.known).copied().unwrap();
             app.selected = Some(e.seq);
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            if w == 200 { dump(&term, "events_selected_200x55"); }
+            if w == 200 {
+                dump(&term, "events_selected_200x55");
+            }
             app.follow = Some(e.order_id);
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            if w == 200 { dump(&term, "events_follow_200x55"); }
+            if w == 200 {
+                dump(&term, "events_follow_200x55");
+            }
             app.follow = None;
             app.inspect = true;
             term.draw(|f| inspect::draw(f, &app)).unwrap();
-            if w == 200 { dump(&term, "inspect_200x55"); }
-            if w == 140 { dump(&term, "inspect_140x40"); }
+            if w == 200 {
+                dump(&term, "inspect_200x55");
+            }
+            if w == 140 {
+                dump(&term, "inspect_140x40");
+            }
             // Every other type too.
             for ty in [b'A', b'X', b'D', b'U', b'R', b'S'] {
                 if let Some(e) = app.snap.events.iter().rev().find(|e| e.ty == ty).copied() {
@@ -164,7 +185,9 @@ mod render_tests {
             term.draw(|f| ui::draw(f, &app)).unwrap();
             app.open_theme_picker();
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            if i == 0 { dump(&term, "picker_200x55"); }
+            if i == 0 {
+                dump(&term, "picker_200x55");
+            }
             app.picker = None;
         }
         theme::set(0);
@@ -174,7 +197,9 @@ mod render_tests {
             use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
             let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
             app.on_key(key(KeyCode::Char('T')));
-            for c in "kan".chars() { app.on_key(key(KeyCode::Char(c))); }
+            for c in "kan".chars() {
+                app.on_key(key(KeyCode::Char(c)));
+            }
             assert_eq!(app.picker.as_ref().unwrap().current().unwrap().label, "kanagawa");
             let mut term = Terminal::new(TestBackend::new(200, 55)).unwrap();
             term.draw(|f| ui::draw(f, &app)).unwrap();
@@ -182,13 +207,17 @@ mod render_tests {
             app.on_key(key(KeyCode::Enter));
             assert_eq!(theme::th().name, "kanagawa");
             app.on_key(key(KeyCode::Char('T')));
-            for c in "mono".chars() { app.on_key(key(KeyCode::Char(c))); }
+            for c in "mono".chars() {
+                app.on_key(key(KeyCode::Char(c)));
+            }
             assert_eq!(theme::th().name, "mono", "theme previews live while typing");
             app.on_key(key(KeyCode::Esc));
             assert_eq!(theme::th().name, "kanagawa", "Esc reverts the preview");
             theme::set(0);
             app.on_key(key(KeyCode::Char('/')));
-            for c in "nv".chars() { app.on_key(key(KeyCode::Char(c))); }
+            for c in "nv".chars() {
+                app.on_key(key(KeyCode::Char(c)));
+            }
             term.draw(|f| ui::draw(f, &app)).unwrap();
             dump(&term, "symbol_picker_200x55");
             app.on_key(key(KeyCode::Enter));
@@ -198,7 +227,34 @@ mod render_tests {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
         app.inspect = false;
-        for c in [KeyCode::Up, KeyCode::Up, KeyCode::Down, KeyCode::Enter, KeyCode::Char('n'), KeyCode::Char('p'), KeyCode::Char('K'), KeyCode::Esc, KeyCode::Char(']'), KeyCode::Char('['), KeyCode::Char('d'), KeyCode::Char('f'), KeyCode::Char(' '), KeyCode::PageUp, KeyCode::PageDown, KeyCode::Char('m'), KeyCode::Char('e'), KeyCode::Tab, KeyCode::Char('i'), KeyCode::Char('1'), KeyCode::Char('2'), KeyCode::Char('1'), KeyCode::Up, KeyCode::Char('o'), KeyCode::Char('o'), KeyCode::Esc] {
+        for c in [
+            KeyCode::Up,
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::Enter,
+            KeyCode::Char('n'),
+            KeyCode::Char('p'),
+            KeyCode::Char('K'),
+            KeyCode::Esc,
+            KeyCode::Char(']'),
+            KeyCode::Char('['),
+            KeyCode::Char('d'),
+            KeyCode::Char('f'),
+            KeyCode::Char(' '),
+            KeyCode::PageUp,
+            KeyCode::PageDown,
+            KeyCode::Char('m'),
+            KeyCode::Char('e'),
+            KeyCode::Tab,
+            KeyCode::Char('i'),
+            KeyCode::Char('1'),
+            KeyCode::Char('2'),
+            KeyCode::Char('1'),
+            KeyCode::Up,
+            KeyCode::Char('o'),
+            KeyCode::Char('o'),
+            KeyCode::Esc,
+        ] {
             app.on_key(key(c));
         }
         let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
@@ -275,7 +331,10 @@ fn print_frame(s: &Snapshot, elapsed: f64) {
     for sym in &s.symbols {
         let bb = sym.best_bid().map(|l| format!("{}x{}", l.qty, l.price)).unwrap_or_else(|| "-".into());
         let ba = sym.best_ask().map(|l| format!("{}x{}", l.price, l.qty)).unwrap_or_else(|| "-".into());
-        let last = sym.last_trade.map(|t| format!("{}@{} {}", t.qty, t.price, if t.aggressor_buy { "▲" } else { "▼" })).unwrap_or_else(|| "-".into());
+        let last = sym
+            .last_trade
+            .map(|t| format!("{}@{} {}", t.qty, t.price, if t.aggressor_buy { "▲" } else { "▼" }))
+            .unwrap_or_else(|| "-".into());
         println!(
             "   {:<8} bid {:>14}  |  ask {:<14} spread={:<4} last={:<16} vol={:<9} trades={:<7} orders={:<6} levels={}/{} seq={}{}",
             if sym.ticker.is_empty() { format!("#{}", sym.symbol_id) } else { sym.ticker.clone() },
@@ -285,7 +344,11 @@ fn print_frame(s: &Snapshot, elapsed: f64) {
             if sym.unknown_orders > 0 { format!(" unknown={}", sym.unknown_orders) } else { String::new() },
         );
         for i in 0..sym.bids.len().max(sym.asks.len()).min(5) {
-            let b = sym.bids.get(i).map(|l| format!("{:>4} {:>8} {:>8}", l.count, l.qty, l.price)).unwrap_or_else(|| " ".repeat(22));
+            let b = sym
+                .bids
+                .get(i)
+                .map(|l| format!("{:>4} {:>8} {:>8}", l.count, l.qty, l.price))
+                .unwrap_or_else(|| " ".repeat(22));
             let a = sym.asks.get(i).map(|l| format!("{:<8} {:<8} {:<4}", l.price, l.qty, l.count)).unwrap_or_default();
             println!("            {b}  |  {a}");
         }

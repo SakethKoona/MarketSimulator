@@ -42,10 +42,18 @@ pub struct SessionStatsSym {
 impl SessionStatsSym {
     pub fn vwap(&self) -> f64 {
         let v = self.buy_vol + self.sell_vol;
-        if v == 0 { 0.0 } else { self.vwap_num as f64 / v as f64 }
+        if v == 0 {
+            0.0
+        } else {
+            self.vwap_num as f64 / v as f64
+        }
     }
     pub fn avg_spread(&self) -> f64 {
-        if self.spread_n == 0 { 0.0 } else { self.spread_sum as f64 / self.spread_n as f64 }
+        if self.spread_n == 0 {
+            0.0
+        } else {
+            self.spread_sum as f64 / self.spread_n as f64
+        }
     }
 }
 
@@ -248,7 +256,11 @@ impl Book {
         st.low = st.low.min(t.price);
         st.last = t.price;
         st.vwap_num += (t.price as u128) * (q as u128);
-        if t.aggressor_buy { st.buy_vol += q } else { st.sell_vol += q }
+        if t.aggressor_buy {
+            st.buy_vol += q
+        } else {
+            st.sell_vol += q
+        }
 
         let sec = t.ts_ns / 1_000_000_000;
         for (i, iv) in INTERVALS.iter().enumerate() {
@@ -266,13 +278,25 @@ impl Book {
                     if bars.len() == MAX_BARS {
                         bars.pop_front();
                     }
-                    bars.push_back(Bar { sec: bsec, open: t.price, high: t.price, low: t.price, close: t.price, volume: q, trades: 1 });
+                    bars.push_back(Bar {
+                        sec: bsec,
+                        open: t.price,
+                        high: t.price,
+                        low: t.price,
+                        close: t.price,
+                        volume: q,
+                        trades: 1,
+                    });
                 }
             }
         }
         let f = self.flow_mut(t.ts_ns);
         f.trades += 1;
-        if t.aggressor_buy { f.buy_vol += q } else { f.sell_vol += q }
+        if t.aggressor_buy {
+            f.buy_vol += q
+        } else {
+            f.sell_vol += q
+        }
     }
 
     fn note_seq(&mut self, seq: u64) {

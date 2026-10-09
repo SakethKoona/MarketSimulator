@@ -32,11 +32,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            source: Source::Multicast {
-                group: Ipv4Addr::new(239, 1, 1, 1),
-                port: 30001,
-                iface: Ipv4Addr::UNSPECIFIED,
-            },
+            source: Source::Multicast { group: Ipv4Addr::new(239, 1, 1, 1), port: 30001, iface: Ipv4Addr::UNSPECIFIED },
             ring_capacity: 4096,
             depth: 20,
             snapshot_interval: Duration::from_millis(16),
@@ -114,7 +110,7 @@ impl FeedClient {
                         let mut rate_hist: std::collections::VecDeque<u64> = std::collections::VecDeque::new();
                         let mut p99_hist: std::collections::VecDeque<u64> = std::collections::VecDeque::new();
                         let mut lat_window: Vec<u64> = Vec::new(); // this second's samples
-                        let mut lat_pct = (0u64, 0u64);             // last full second
+                        let mut lat_pct = (0u64, 0u64); // last full second
                         loop {
                             let mut worked = false;
                             for _ in 0..256 {
@@ -138,11 +134,15 @@ impl FeedClient {
                                 rate = session.stats.messages - msgs_at_rate;
                                 msgs_at_rate = session.stats.messages;
                                 last_rate = now;
-                                if rate_hist.len() == 120 { rate_hist.pop_front(); }
+                                if rate_hist.len() == 120 {
+                                    rate_hist.pop_front();
+                                }
                                 rate_hist.push_back(rate);
                                 lat_pct = crate::snapshot::percentiles(&mut lat_window);
                                 lat_window.clear();
-                                if p99_hist.len() == 120 { p99_hist.pop_front(); }
+                                if p99_hist.len() == 120 {
+                                    p99_hist.pop_front();
+                                }
                                 p99_hist.push_back(lat_pct.1);
                             }
                             let src_done = source_done.load(Ordering::Acquire) && rx.is_empty();

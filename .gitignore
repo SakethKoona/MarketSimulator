@@ -1,11 +1,13 @@
-limit_order_book/third_party/
-limit_order_book/compile_flags.txt
-.vscode/
-limit_order_book/logs/
-CLAUDE.md
-.claude/
-
-limit_order_book/build/
-limit_order_book/bin/
-.DS_Store
+# build outputs
+build/
+engine/build/
+engine/bin/
+engine/logs/
 gateway/build/
+clients/feedviz/target/
+# editor / local
+.vscode/
+.claude/
+CLAUDE.md
+.DS_Store
+engine/compile_flags.txt

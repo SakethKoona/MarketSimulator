@@ -29,7 +29,8 @@ pub fn draw_picker(f: &mut Frame, p: &crate::picker::Picker) {
     let area = f.area();
     let w = 70u16.min(area.width.saturating_sub(4));
     let h = (p.items.len() as u16 + 5).clamp(7, area.height.saturating_sub(2).max(7));
-    let rect = Rect { x: (area.width.saturating_sub(w)) / 2, y: (area.height.saturating_sub(h)) / 2, width: w, height: h };
+    let rect =
+        Rect { x: (area.width.saturating_sub(w)) / 2, y: (area.height.saturating_sub(h)) / 2, width: w, height: h };
     f.render_widget(ratatui::widgets::Clear, rect);
     let title = match p.kind {
         PickerKind::Theme => " THEMES  type to filter · ↑↓ preview · Enter keep · Esc revert ",
@@ -69,7 +70,13 @@ pub fn draw_picker(f: &mut Frame, p: &crate::picker::Picker) {
         let chars: Vec<char> = it.label.chars().collect();
         for (ci, c) in chars.iter().enumerate() {
             let hit = m.positions.contains(&ci);
-            let st = if hit { bold(th().amber_bright).bg(bg) } else if sel { bold(th().text_bright).bg(bg) } else { Style::default().fg(th().text).bg(bg) };
+            let st = if hit {
+                bold(th().amber_bright).bg(bg)
+            } else if sel {
+                bold(th().text_bright).bg(bg)
+            } else {
+                Style::default().fg(th().text).bg(bg)
+            };
             spans.push(Span::styled(c.to_string(), st));
         }
         spans.push(Span::styled(" ".repeat(label_w.saturating_sub(chars.len()) + 1), Style::default().bg(bg)));
@@ -88,7 +95,10 @@ pub fn draw_picker(f: &mut Frame, p: &crate::picker::Picker) {
     if p.matches.is_empty() {
         lines.push(Line::from(Span::styled("   no match", dim())));
     }
-    f.render_widget(Paragraph::new(lines), Rect { x: inner.x, y: inner.y + 2, width: inner.width, height: inner.height - 2 });
+    f.render_widget(
+        Paragraph::new(lines),
+        Rect { x: inner.x, y: inner.y + 2, width: inner.width, height: inner.height - 2 },
+    );
 }
 
 /// The original single-screen layout, kept for the render test and as a
@@ -104,12 +114,8 @@ pub fn draw_classic(f: &mut Frame, app: &App) {
 
     let left_w = 52u16.min(body.width / 3);
     let right_w = 58u16.min(body.width / 3);
-    let [left, centre, right] = Layout::horizontal([
-        Constraint::Length(left_w),
-        Constraint::Min(20),
-        Constraint::Length(right_w),
-    ])
-    .areas(body);
+    let [left, centre, right] =
+        Layout::horizontal([Constraint::Length(left_w), Constraint::Min(20), Constraint::Length(right_w)]).areas(body);
 
     draw_ladder(f, app, left);
 
@@ -154,11 +160,19 @@ pub fn panel(f: &mut Frame, area: Rect, title: &str, sub: &str) -> Rect {
 
 pub fn pad_left(s: &str, w: usize) -> String {
     let n = s.chars().count();
-    if n >= w { s.chars().take(w).collect() } else { format!("{}{}", " ".repeat(w - n), s) }
+    if n >= w {
+        s.chars().take(w).collect()
+    } else {
+        format!("{}{}", " ".repeat(w - n), s)
+    }
 }
 pub fn pad_right(s: &str, w: usize) -> String {
     let n = s.chars().count();
-    if n >= w { s.chars().take(w).collect() } else { format!("{}{}", s, " ".repeat(w - n)) }
+    if n >= w {
+        s.chars().take(w).collect()
+    } else {
+        format!("{}{}", s, " ".repeat(w - n))
+    }
 }
 pub fn center(s: &str, w: usize) -> String {
     let n = s.chars().count();
@@ -170,17 +184,27 @@ pub fn center(s: &str, w: usize) -> String {
 }
 
 pub fn sym_name(s: &SymbolSnapshot) -> String {
-    if s.ticker.is_empty() { format!("#{}", s.symbol_id) } else { s.ticker.clone() }
+    if s.ticker.is_empty() {
+        format!("#{}", s.symbol_id)
+    } else {
+        s.ticker.clone()
+    }
 }
 
 // ------------------------------------------------------------ header / footer
 
 pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.snap;
-    let mut spans = vec![Span::styled(" FEEDVIZ ", bold(th().amber_bright).bg(th().hdr_bg)), Span::styled(" ", Style::default().bg(th().hdr_bg))];
+    let mut spans = vec![
+        Span::styled(" FEEDVIZ ", bold(th().amber_bright).bg(th().hdr_bg)),
+        Span::styled(" ", Style::default().bg(th().hdr_bg)),
+    ];
     for (name, sc) in [("MARKET", crate::app::Screen::Market), ("EVENTS", crate::app::Screen::Events)] {
         if app.screen == sc {
-            spans.push(Span::styled(format!(" {name} "), Style::default().fg(th().hdr_bg).bg(th().amber).add_modifier(ratatui::style::Modifier::BOLD)));
+            spans.push(Span::styled(
+                format!(" {name} "),
+                Style::default().fg(th().hdr_bg).bg(th().amber).add_modifier(ratatui::style::Modifier::BOLD),
+            ));
         } else {
             spans.push(Span::styled(format!(" {name} "), Style::default().fg(th().amber).bg(th().hdr_bg)));
         }
@@ -189,14 +213,20 @@ pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     for (i, sym) in s.symbols.iter().enumerate() {
         let name = format!(" {} ", sym_name(sym));
         if i == app.sym_idx {
-            spans.push(Span::styled(name, Style::default().fg(th().pause_fg).bg(th().pause_bg).add_modifier(ratatui::style::Modifier::BOLD)));
+            spans.push(Span::styled(
+                name,
+                Style::default().fg(th().pause_fg).bg(th().pause_bg).add_modifier(ratatui::style::Modifier::BOLD),
+            ));
         } else {
             spans.push(Span::styled(name, Style::default().fg(th().amber).bg(th().hdr_bg)));
         }
         spans.push(Span::styled(" ", Style::default().bg(th().hdr_bg)));
     }
     let kv = |k: &str, v: String, c: Color| {
-        vec![Span::styled(format!("  {k} "), Style::default().fg(th().amber_dim).bg(th().hdr_bg)), Span::styled(v, Style::default().fg(c).bg(th().hdr_bg))]
+        vec![
+            Span::styled(format!("  {k} "), Style::default().fg(th().amber_dim).bg(th().hdr_bg)),
+            Span::styled(v, Style::default().fg(c).bg(th().hdr_bg)),
+        ]
     };
     let session = String::from_utf8_lossy(&s.stats.session).trim().to_string();
     let wide = area.width >= 170;
@@ -221,7 +251,11 @@ pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     } else {
         Span::styled(" ● LIVE ", bold(th().live_fg).bg(th().live_bg))
     };
-    let right = vec![Span::styled(format!("{clock}  "), Style::default().fg(th().amber_text).bg(th().hdr_bg)), state, Span::styled(" ", Style::default().bg(th().hdr_bg))];
+    let right = vec![
+        Span::styled(format!("{clock}  "), Style::default().fg(th().amber_text).bg(th().hdr_bg)),
+        state,
+        Span::styled(" ", Style::default().bg(th().hdr_bg)),
+    ];
     let left_len: usize = spans.iter().map(|x| x.content.chars().count()).sum();
     let right_len: usize = right.iter().map(|x| x.content.chars().count()).sum();
     let pad = (area.width as usize).saturating_sub(left_len + right_len).max(2);
@@ -245,7 +279,22 @@ pub fn draw_footer_keys(f: &mut Frame, area: Rect, keys: &[(&str, &str)]) {
 }
 
 fn draw_footer(f: &mut Frame, area: Rect) {
-    draw_footer_keys(f, area, &[("q", "quit"), ("space", "pause"), ("[ ]", "symbol"), ("d", "depth"), ("f", "filter"), ("↑↓", "select"), ("Enter", "inspect"), ("Esc", "follow"), ("/", "symbol"), ("T", "themes")]);
+    draw_footer_keys(
+        f,
+        area,
+        &[
+            ("q", "quit"),
+            ("space", "pause"),
+            ("[ ]", "symbol"),
+            ("d", "depth"),
+            ("f", "filter"),
+            ("↑↓", "select"),
+            ("Enter", "inspect"),
+            ("Esc", "follow"),
+            ("/", "symbol"),
+            ("T", "themes"),
+        ],
+    );
 }
 
 // ------------------------------------------------------------ ladder
@@ -264,7 +313,16 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
     let barw = w.saturating_sub(fixed) / 2;
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(vec![Span::styled(
-        format!("{} {} {} {} {} {} {}", pad_left("ORD", 3), pad_left("th().bid", 8), " ".repeat(barw), center("PRICE", 9), " ".repeat(barw), pad_right("th().ask", 8), pad_right("ORD", 3)),
+        format!(
+            "{} {} {} {} {} {} {}",
+            pad_left("ORD", 3),
+            pad_left("th().bid", 8),
+            " ".repeat(barw),
+            center("PRICE", 9),
+            " ".repeat(barw),
+            pad_right("th().ask", 8),
+            pad_right("ORD", 3)
+        ),
         dim(),
     )]));
     let rows_avail = inner.height.saturating_sub(2) as usize; // header + mid line
@@ -323,7 +381,9 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
     let footer = Line::from(vec![
         Span::styled(" LAST ", dim()),
         Span::styled(
-            sym.last_trade.map(|t| format!("{} × {}", fmt::commas(t.price), fmt::commas(t.qty as u64))).unwrap_or_else(|| "—".into()),
+            sym.last_trade
+                .map(|t| format!("{} × {}", fmt::commas(t.price), fmt::commas(t.qty as u64)))
+                .unwrap_or_else(|| "—".into()),
             fg(sym.last_trade.map(|t| if t.aggressor_buy { th().bid } else { th().ask }).unwrap_or(th().dim)),
         ),
         Span::styled("  VOL ", dim()),
@@ -345,7 +405,11 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
 
 pub fn interval_label(i: usize) -> String {
     let s = feed_client::INTERVALS[i];
-    if s >= 60 { format!("{}m", s / 60) } else { format!("{s}s") }
+    if s >= 60 {
+        format!("{}m", s / 60)
+    } else {
+        format!("{s}s")
+    }
 }
 
 pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
@@ -354,9 +418,28 @@ pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
     let last = bars_all.last();
     let vwap = sym.session.vwap();
     let sub = last
-        .map(|b| format!("O {} H {} L {} C {} · {}{} · VWAP {:.1}", b.open, b.high, b.low, b.close, if b.close >= b.open { "▲ +" } else { "▼ -" }, b.close.abs_diff(b.open), vwap))
+        .map(|b| {
+            format!(
+                "O {} H {} L {} C {} · {}{} · VWAP {:.1}",
+                b.open,
+                b.high,
+                b.low,
+                b.close,
+                if b.close >= b.open { "▲ +" } else { "▼ -" },
+                b.close.abs_diff(b.open),
+                vwap
+            )
+        })
         .unwrap_or_default();
-    let ivs: String = (0..feed_client::INTERVALS.len()).map(|i| if i == app.interval_idx { format!("[{}]", interval_label(i)) } else { format!(" {} ", interval_label(i)) }).collect();
+    let ivs: String = (0..feed_client::INTERVALS.len())
+        .map(|i| {
+            if i == app.interval_idx {
+                format!("[{}]", interval_label(i))
+            } else {
+                format!(" {} ", interval_label(i))
+            }
+        })
+        .collect();
     let inner = panel(f, area, &format!("{} · CANDLES {}", sym_name(sym), ivs), &sub);
     if inner.height < 3 || inner.width < 12 {
         return;
@@ -427,7 +510,8 @@ pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
 
 pub fn draw_volume(f: &mut Frame, app: &App, area: Rect) {
     let Some(sym) = app.current_symbol() else { return };
-    let block = Block::default().borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM).border_style(fg(th().border));
+    let block =
+        Block::default().borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM).border_style(fg(th().border));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.height == 0 || inner.width < 12 {
@@ -456,10 +540,18 @@ pub fn event_cols(width: u16) -> Vec<(&'static str, u16, bool)> {
     // (name, width, right-aligned)
     let compact = width < 90;
     let mut cols = vec![
-        ("SEQ", 8, true), ("TIME", 18, false), ("TY", 2, false), ("SYM", 5, false),
+        ("SEQ", 8, true),
+        ("TIME", 18, false),
+        ("TY", 2, false),
+        ("SYM", 5, false),
         (if compact { "OID" } else { "ORDER ID" }, if compact { 9 } else { 18 }, false),
-        ("SD", 2, false), ("PX", 7, true), ("QTY", 6, true), ("LEFT", 6, true), ("MATCH", 10, false),
-        ("BSEQ", 10, false), ("LAT", 7, true),
+        ("SD", 2, false),
+        ("PX", 7, true),
+        ("QTY", 6, true),
+        ("LEFT", 6, true),
+        ("MATCH", 10, false),
+        ("BSEQ", 10, false),
+        ("LAT", 7, true),
     ];
     let mut total: u16 = cols.iter().map(|c| c.1 + 1).sum();
     // Drop optional columns until it fits, least useful first.
@@ -476,9 +568,20 @@ pub fn event_cols(width: u16) -> Vec<(&'static str, u16, bool)> {
     cols
 }
 
-pub fn event_line(e: &EventRecord, cols: &[(&str, u16, bool)], ticker: &str, selected: bool, width: u16) -> Line<'static> {
+pub fn event_line(
+    e: &EventRecord,
+    cols: &[(&str, u16, bool)],
+    ticker: &str,
+    selected: bool,
+    width: u16,
+) -> Line<'static> {
     if e.is_gap() {
-        let text = format!(" — GAP — expected {} got {} ({} lost) ", fmt::commas(e.seq), fmt::commas(e.packet_seq), fmt::commas(e.qty as u64));
+        let text = format!(
+            " — GAP — expected {} got {} ({} lost) ",
+            fmt::commas(e.seq),
+            fmt::commas(e.packet_seq),
+            fmt::commas(e.qty as u64)
+        );
         return Line::from(Span::styled(pad_right(&text, width as usize), fg(th().red).bg(th().red_bg)));
     }
     let bg = if selected { th().select_bg } else { th().bg };
@@ -493,13 +596,20 @@ pub fn event_line(e: &EventRecord, cols: &[(&str, u16, bool)], ticker: &str, sel
             "SYM" => (if ticker.is_empty() { format!("#{}", e.symbol_id) } else { ticker.to_string() }, th().text),
             "ORDER ID" => (if e.order_id == 0 { String::new() } else { fmt::hex_id(e.order_id) }, th().muted),
             "OID" => (if e.order_id == 0 { String::new() } else { fmt::short_id(e.order_id) }, th().muted),
-            "SD" => ((if e.side == b'B' || e.side == b'S' { e.side as char } else { ' ' }).to_string(), side_color(e.side)),
+            "SD" => {
+                ((if e.side == b'B' || e.side == b'S' { e.side as char } else { ' ' }).to_string(), side_color(e.side))
+            }
             "PX" => (if e.price == 0 { String::new() } else { fmt::commas(e.price) }, th().text),
             "QTY" => (if e.qty == 0 { String::new() } else { fmt::commas(e.qty as u64) }, th().text),
-            "LEFT" => (if matches!(e.ty, b'E' | b'X' | b'D') { fmt::commas(e.remaining as u64) } else { String::new() }, th().dim),
+            "LEFT" => (
+                if matches!(e.ty, b'E' | b'X' | b'D') { fmt::commas(e.remaining as u64) } else { String::new() },
+                th().dim,
+            ),
             "MATCH" => (if e.match_id == 0 { String::new() } else { fmt::short_id(e.match_id) }, th().dim),
             "BSEQ" => (if e.book_seq == 0 { String::new() } else { fmt::short_id(e.book_seq) }, th().dim),
-            "LAT" => (if lat == 0 { String::new() } else { fmt::commas(lat) }, if lat > 500 { th().red } else { th().dim }),
+            "LAT" => {
+                (if lat == 0 { String::new() } else { fmt::commas(lat) }, if lat > 500 { th().red } else { th().dim })
+            }
             _ => (String::new(), th().dim),
         };
         let cell = if *right { pad_left(&text, *w as usize) } else { pad_right(&text, *w as usize) };
@@ -516,22 +626,32 @@ pub fn event_line(e: &EventRecord, cols: &[(&str, u16, bool)], ticker: &str, sel
 
 pub fn draw_event_log(f: &mut Frame, app: &App, area: Rect) {
     let sym_name_s = app.current_symbol().map(sym_name).unwrap_or_default();
-    let sub = format!("filter: {} · ↑↓ select · Enter inspect · f filter", if app.filter_sym { sym_name_s.as_str() } else { "all" });
+    let sub = format!(
+        "filter: {} · ↑↓ select · Enter inspect · f filter",
+        if app.filter_sym { sym_name_s.as_str() } else { "all" }
+    );
     let inner = panel(f, area, "EVENT LOG · every message, in stream order", &sub);
     if inner.height < 2 {
         return;
     }
     let cols = event_cols(inner.width);
-    let header: String = cols.iter().map(|(n, w, r)| if *r { pad_left(n, *w as usize) } else { pad_right(n, *w as usize) }).collect::<Vec<_>>().join(" ");
+    let header: String = cols
+        .iter()
+        .map(|(n, w, r)| if *r { pad_left(n, *w as usize) } else { pad_right(n, *w as usize) })
+        .collect::<Vec<_>>()
+        .join(" ");
     let mut lines = vec![Line::from(Span::styled(pad_right(&header, inner.width as usize), dim()))];
     let rows = inner.height as usize - 1;
     let vis = app.visible_events();
     let end = match app.selected {
-        Some(seq) => vis.iter().position(|e| e.seq == seq).map(|i| (i + rows / 2 + 1).min(vis.len())).unwrap_or(vis.len()),
+        Some(seq) => {
+            vis.iter().position(|e| e.seq == seq).map(|i| (i + rows / 2 + 1).min(vis.len())).unwrap_or(vis.len())
+        }
         None => vis.len(),
     };
     let start = end.saturating_sub(rows);
-    let tickers: std::collections::HashMap<u32, &str> = app.snap.symbols.iter().map(|s| (s.symbol_id, s.ticker.as_str())).collect();
+    let tickers: std::collections::HashMap<u32, &str> =
+        app.snap.symbols.iter().map(|s| (s.symbol_id, s.ticker.as_str())).collect();
     for e in &vis[start..end] {
         let t = tickers.get(&e.symbol_id).copied().unwrap_or("");
         lines.push(event_line(e, &cols, t, app.selected == Some(e.seq), inner.width));
@@ -594,29 +714,44 @@ pub fn draw_health(f: &mut Frame, app: &App, area: Rect) {
         Line::from(mixbar),
         Line::from(vec![
             Span::styled(pad_right("", 8), dim()),
-            Span::styled(format!("A {}%", mix(2)), fg(th().bid)), Span::styled(" · ", dim()),
-            Span::styled(format!("E {}%", mix(3)), fg(th().ask)), Span::styled(" · ", dim()),
-            Span::styled(format!("D {}%", mix(5)), fg(th().muted)), Span::styled(" · ", dim()),
-            Span::styled(format!("X {}%", mix(4)), fg(th().amber_text)), Span::styled(" · ", dim()),
+            Span::styled(format!("A {}%", mix(2)), fg(th().bid)),
+            Span::styled(" · ", dim()),
+            Span::styled(format!("E {}%", mix(3)), fg(th().ask)),
+            Span::styled(" · ", dim()),
+            Span::styled(format!("D {}%", mix(5)), fg(th().muted)),
+            Span::styled(" · ", dim()),
+            Span::styled(format!("X {}%", mix(4)), fg(th().amber_text)),
+            Span::styled(" · ", dim()),
             Span::styled(format!("U {}%", mix(6)), fg(th().purple)),
         ]),
         Line::from(vec![
-            Span::styled("ring ", dim()), Span::styled(format!("{:.0}%", s.ring_occupancy * 100.0), fg(th().text)),
-            Span::styled("   drops ", dim()), Span::styled(fmt::commas(s.ring_drops), fg(if s.ring_drops > 0 { th().red } else { th().green })),
-            Span::styled("   gaps ", dim()), Span::styled(s.stats.gaps.to_string(), fg(if s.stats.gaps > 0 { th().red } else { th().green })),
+            Span::styled("ring ", dim()),
+            Span::styled(format!("{:.0}%", s.ring_occupancy * 100.0), fg(th().text)),
+            Span::styled("   drops ", dim()),
+            Span::styled(fmt::commas(s.ring_drops), fg(if s.ring_drops > 0 { th().red } else { th().green })),
+            Span::styled("   gaps ", dim()),
+            Span::styled(s.stats.gaps.to_string(), fg(if s.stats.gaps > 0 { th().red } else { th().green })),
             Span::styled(format!(" ({} lost)", fmt::commas(s.stats.lost_messages)), dimmer()),
-            Span::styled("   dups ", dim()), Span::styled(fmt::commas(s.stats.duplicates), fg(th().text)),
+            Span::styled("   dups ", dim()),
+            Span::styled(fmt::commas(s.stats.duplicates), fg(th().text)),
         ]),
         Line::from(vec![
-            Span::styled("pkts ", dim()), Span::styled(fmt::commas(s.stats.packets), fg(th().text)),
-            Span::styled("   msgs ", dim()), Span::styled(fmt::commas(s.stats.messages), fg(th().text)),
-            Span::styled("   hb ", dim()), Span::styled(fmt::commas(s.stats.heartbeats), fg(th().text)),
-            Span::styled("   lat p50 ", dim()), Span::styled(fmt::micros(s.latency_p50_ns), fg(th().text)),
+            Span::styled("pkts ", dim()),
+            Span::styled(fmt::commas(s.stats.packets), fg(th().text)),
+            Span::styled("   msgs ", dim()),
+            Span::styled(fmt::commas(s.stats.messages), fg(th().text)),
+            Span::styled("   hb ", dim()),
+            Span::styled(fmt::commas(s.stats.heartbeats), fg(th().text)),
+            Span::styled("   lat p50 ", dim()),
+            Span::styled(fmt::micros(s.latency_p50_ns), fg(th().text)),
         ]),
         Line::from(vec![
-            Span::styled("frame p50 ", dim()), Span::styled(format!("{:.1} ms", fp50 as f64 / 1000.0), fg(th().text)),
-            Span::styled("   p99 ", dim()), Span::styled(format!("{:.1} ms", fp99 as f64 / 1000.0), fg(th().text)),
-            Span::styled("   uptime ", dim()), Span::styled(format!("{}s", app.started.elapsed().as_secs()), fg(th().text)),
+            Span::styled("frame p50 ", dim()),
+            Span::styled(format!("{:.1} ms", fp50 as f64 / 1000.0), fg(th().text)),
+            Span::styled("   p99 ", dim()),
+            Span::styled(format!("{:.1} ms", fp99 as f64 / 1000.0), fg(th().text)),
+            Span::styled("   uptime ", dim()),
+            Span::styled(format!("{}s", app.started.elapsed().as_secs()), fg(th().text)),
             Span::styled(if s.stale { "   STALE" } else { "" }, bold(th().red)),
         ]),
     ];
@@ -666,7 +801,10 @@ pub fn draw_inspector_panel(f: &mut Frame, app: &App, area: Rect) {
     };
     let ticker = app.snap.symbols.iter().find(|s| s.symbol_id == e.symbol_id).map(|s| s.ticker.as_str()).unwrap_or("");
     let fields = decode::fields(&e, ticker);
-    let mut lines = vec![Line::from(Span::styled(format!("{}  {} · {} bytes", e.ty as char, fmt::type_name(e.ty), e.raw_len), bold(type_color(e.ty))))];
+    let mut lines = vec![Line::from(Span::styled(
+        format!("{}  {} · {} bytes", e.ty as char, fmt::type_name(e.ty), e.raw_len),
+        bold(type_color(e.ty)),
+    ))];
     for fl in &fields {
         lines.push(Line::from(vec![
             Span::styled(pad_left(&fl.off.to_string(), 3), dimmer()),
@@ -688,7 +826,8 @@ pub fn draw_inspector_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(if e.ty == b'E' && e.remaining == 0 { " · order left the book" } else { "" }, dim()),
         ]));
     } else if !e.applied.known && matches!(e.ty, b'E' | b'X' | b'D') {
-        lines.push(Line::from(Span::styled("order unknown to this client (joined after its Add)", fg(th().amber_text))));
+        lines
+            .push(Line::from(Span::styled("order unknown to this client (joined after its Add)", fg(th().amber_text))));
     }
     f.render_widget(Paragraph::new(lines), inner);
 }

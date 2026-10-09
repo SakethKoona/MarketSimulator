@@ -40,7 +40,7 @@ sequence. A second fixture, `capture_1shard.bin`, is checked when present.
 Live, against an exchange started from the repo root:
 
 ```
-./gateway/build/exchange_server configs/default.json --rate 20000
+build/gateway/exchange_server configs/default.json --rate 20000
 ./target/release/feedviz --iface 127.0.0.1          # another terminal
 ```
 
@@ -190,7 +190,7 @@ level counts and the top five levels. `seq` is `shard:sequence`.
 ## Record a new fixture
 
 ```
-./gateway/build/exchange_server configs/default.json --rate 3000 --seconds 3 \
+build/gateway/exchange_server configs/default.json --rate 3000 --seconds 3 \
     --quiet --capture clients/feedviz/testdata/capture.bin
 ```
 

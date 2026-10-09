@@ -62,8 +62,7 @@ pub struct PacketIter<'a> {
 
 impl<'a> PacketIter<'a> {
     pub fn new(packet: &'a [u8]) -> Result<Self, DecodeError> {
-        let (header, rest) =
-            PacketHeader::ref_from_prefix(packet).map_err(|_| DecodeError::ShortPacket)?;
+        let (header, rest) = PacketHeader::ref_from_prefix(packet).map_err(|_| DecodeError::ShortPacket)?;
         let remaining = if header.is_end_of_session() { 0 } else { header.count() };
         Ok(Self { header, rest, remaining, seq: header.seq(), block: 0 })
     }

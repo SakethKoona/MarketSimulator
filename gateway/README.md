@@ -1,7 +1,7 @@
 # gateway
 
 Ingress (BOE over TCP) and egress (ITCH-style feed over UDP multicast) for
-the matching engine in `../limit_order_book`. The wire contracts live in
+the matching engine in `../engine`. The wire contracts live in
 `../docs/protocol/`; this directory implements them.
 
 ## Build and test
@@ -12,15 +12,15 @@ make test       # protocol framing, SPSC ring, feed reconstruction conformance
 ```
 
 Compiles the engine sources directly, so the engine's own Makefile is not
-needed. Requires the nlohmann JSON headers in `../limit_order_book/third_party`.
+needed. Requires the nlohmann JSON headers in `../engine/third_party`.
 
 ## Run
 
 ```
 # from the repo root
-./gateway/build/exchange_server configs/default.json          # engine + feed + BOE, no flow
-./gateway/build/flowgen --sessions 4 --rate 20000              # order flow over BOE/TCP
-./gateway/build/feed_dump                                      # watch the feed
+build/gateway/exchange_server configs/default.json          # engine + feed + BOE, no flow
+build/gateway/flowgen --sessions 4 --rate 20000              # order flow over BOE/TCP
+build/gateway/feed_dump                                      # watch the feed
 ```
 
 `exchange_server` runs the engine, the feed publisher and the BOE gateway.
@@ -98,7 +98,7 @@ tests/              protocol_test, spsc_ring_test, feed_reconstruct_test
 ```
 
 The lock-free SPSC ring the engine's `EventSink` uses is
-`../limit_order_book/include/spsc_ring.hpp`.
+`../engine/include/spsc_ring.hpp`.
 
 ## Threads
 

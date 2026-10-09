@@ -1,0 +1,52 @@
+name: ci
+on:
+  push:
+    branches: [main, cpp_imp]
+  pull_request:
+
+jobs:
+  cpp:
+    name: engine + gateway (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: build
+        run: cmake --build build -j 4
+      - name: test
+        run: cd build && ctest --output-on-failure
+      - name: smoke (exchange + flowgen + feed_dump, loopback)
+        run: |
+          build/gateway/exchange_server configs/default.json --seconds 6 --quiet > exchange.log 2>&1 &
+          sleep 1
+          build/gateway/feed_dump 239.1.1.1 30001 127.0.0.1 > dump.txt 2> dump.err &
+          build/gateway/flowgen --sessions 2 --rate 2000 --seconds 3 --quiet
+          sleep 3
+          tail -2 exchange.log; tail -1 dump.err
+          grep -q "0 gaps" dump.err
+        shell: bash
+
+  rust:
+    name: feedviz (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients/feedviz
+      - name: build
+        run: cd clients/feedviz && cargo build --release
+      - name: test
+        run: cd clients/feedviz && cargo test --release
+      - name: fmt
+        run: cd clients/feedviz && cargo fmt --check

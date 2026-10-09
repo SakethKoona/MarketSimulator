@@ -28,23 +28,47 @@ fn u64_at(b: &[u8], o: usize) -> u64 {
     u64::from_le_bytes(a)
 }
 
-struct Palette { ty: Color, side: Color, sym: Color, oid: Color, px: Color, qty: Color, rem: Color, mat: Color, bseq: Color, ts: Color }
+struct Palette {
+    ty: Color,
+    side: Color,
+    sym: Color,
+    oid: Color,
+    px: Color,
+    qty: Color,
+    rem: Color,
+    mat: Color,
+    bseq: Color,
+    ts: Color,
+}
 fn palette() -> Palette {
     let th = theme::th();
-    Palette { ty: th.ask, side: th.amber_text, sym: th.text, oid: th.muted, px: th.bid, qty: th.green, rem: th.green, mat: th.purple, bseq: th.dim, ts: th.dimmer }
+    Palette {
+        ty: th.ask,
+        side: th.amber_text,
+        sym: th.text,
+        oid: th.muted,
+        px: th.bid,
+        qty: th.green,
+        rem: th.green,
+        mat: th.purple,
+        bseq: th.dim,
+        ts: th.dimmer,
+    }
 }
 
 #[allow(non_snake_case)]
 pub fn fields(e: &EventRecord, ticker: &str) -> Vec<Field> {
     let b = e.raw_bytes();
     let p = palette();
-    let (C_TYPE, C_SIDE, C_SYM, C_OID, C_PX, C_QTY, C_REM, C_MATCH, C_BSEQ, C_TS) = (p.ty, p.side, p.sym, p.oid, p.px, p.qty, p.rem, p.mat, p.bseq, p.ts);
+    let (C_TYPE, C_SIDE, C_SYM, C_OID, C_PX, C_QTY, C_REM, C_MATCH, C_BSEQ, C_TS) =
+        (p.ty, p.side, p.sym, p.oid, p.px, p.qty, p.rem, p.mat, p.bseq, p.ts);
     let mut v = Vec::new();
-    let mut f = |off: usize, len: usize, name: &'static str, ty: &'static str, value: String, note: String, color: Color| {
-        if off + len <= b.len() {
-            v.push(Field { off, len, name, ty, value, note, color });
-        }
-    };
+    let mut f =
+        |off: usize, len: usize, name: &'static str, ty: &'static str, value: String, note: String, color: Color| {
+            if off + len <= b.len() {
+                v.push(Field { off, len, name, ty, value, note, color });
+            }
+        };
     let type_val = |t: u8| format!("0x{:02x}  '{}'", t, t as char);
     let side_note = |s: u8| match s {
         b'B' => "buy".to_string(),
@@ -68,34 +92,94 @@ pub fn fields(e: &EventRecord, ticker: &str) -> Vec<Field> {
             f(6, 8, "order_id", "u64", fmt::hex_id(u64_at(b, 6)), id_note(u64_at(b, 6), "new resting order"), C_OID);
             f(14, 8, "price", "u64", fmt::commas(u64_at(b, 14)), "price_scale 0".into(), C_PX);
             f(22, 4, "qty", "u32", fmt::commas(u32_at(b, 22)), "resting quantity".into(), C_QTY);
-            f(26, 8, "book_seq", "u64", fmt::hex_id(u64_at(b, 26)), format!("{} · increasing within symbol", fmt::short_id(u64_at(b, 26))), C_BSEQ);
+            f(
+                26,
+                8,
+                "book_seq",
+                "u64",
+                fmt::hex_id(u64_at(b, 26)),
+                format!("{} · increasing within symbol", fmt::short_id(u64_at(b, 26))),
+                C_BSEQ,
+            );
             f(34, 8, "ts_ns", "u64", fmt::commas(u64_at(b, 34)), ts_note(u64_at(b, 34)), C_TS);
         }
         b'E' => {
             f(0, 1, "type", "u8", type_val(b[0]), "order executed".into(), C_TYPE);
-            f(1, 1, "side", "u8", type_val(b[1]), format!("resting {} → aggressor {}", side_note(b[1]), if b[1] == b'S' { "BUY" } else { "SELL" }), C_SIDE);
+            f(
+                1,
+                1,
+                "side",
+                "u8",
+                type_val(b[1]),
+                format!("resting {} → aggressor {}", side_note(b[1]), if b[1] == b'S' { "BUY" } else { "SELL" }),
+                C_SIDE,
+            );
             f(2, 4, "symbol_id", "u32", u32_at(b, 2).to_string(), sym_note.clone(), C_SYM);
             f(6, 8, "order_id", "u64", fmt::hex_id(u64_at(b, 6)), id_note(u64_at(b, 6), "the resting order"), C_OID);
             f(14, 8, "price", "u64", fmt::commas(u64_at(b, 14)), "execution px = resting px".into(), C_PX);
             f(22, 4, "exec_qty", "u32", fmt::commas(u32_at(b, 22)), "shares filled in this match".into(), C_QTY);
             let rem = u32_at(b, 26);
-            f(26, 4, "remaining_qty", "u32", fmt::commas(rem), if rem == 0 { "order left the book · no Delete follows".into() } else { "still resting, priority kept".into() }, C_REM);
-            f(30, 8, "match_id", "u64", fmt::hex_id(u64_at(b, 30)), id_note(u64_at(b, 30), "same id in the BOE report"), C_MATCH);
-            f(38, 8, "book_seq", "u64", fmt::hex_id(u64_at(b, 38)), format!("{} · increasing within symbol", fmt::short_id(u64_at(b, 38))), C_BSEQ);
+            f(
+                26,
+                4,
+                "remaining_qty",
+                "u32",
+                fmt::commas(rem),
+                if rem == 0 {
+                    "order left the book · no Delete follows".into()
+                } else {
+                    "still resting, priority kept".into()
+                },
+                C_REM,
+            );
+            f(
+                30,
+                8,
+                "match_id",
+                "u64",
+                fmt::hex_id(u64_at(b, 30)),
+                id_note(u64_at(b, 30), "same id in the BOE report"),
+                C_MATCH,
+            );
+            f(
+                38,
+                8,
+                "book_seq",
+                "u64",
+                fmt::hex_id(u64_at(b, 38)),
+                format!("{} · increasing within symbol", fmt::short_id(u64_at(b, 38))),
+                C_BSEQ,
+            );
             f(46, 8, "ts_ns", "u64", fmt::commas(u64_at(b, 46)), ts_note(u64_at(b, 46)), C_TS);
         }
         b'X' => {
             f(0, 1, "type", "u8", type_val(b[0]), "order cancel (owner reduced qty)".into(), C_TYPE);
             f(1, 4, "symbol_id", "u32", u32_at(b, 1).to_string(), sym_note.clone(), C_SYM);
             f(5, 8, "order_id", "u64", fmt::hex_id(u64_at(b, 5)), id_note(u64_at(b, 5), "priority kept"), C_OID);
-            f(13, 4, "remaining_qty", "u32", fmt::commas(u32_at(b, 13)), format!("cancelled {}", fmt::commas(e.qty as u64)), C_REM);
+            f(
+                13,
+                4,
+                "remaining_qty",
+                "u32",
+                fmt::commas(u32_at(b, 13)),
+                format!("cancelled {}", fmt::commas(e.qty as u64)),
+                C_REM,
+            );
             f(17, 8, "book_seq", "u64", fmt::hex_id(u64_at(b, 17)), fmt::short_id(u64_at(b, 17)), C_BSEQ);
             f(25, 8, "ts_ns", "u64", fmt::commas(u64_at(b, 25)), ts_note(u64_at(b, 25)), C_TS);
         }
         b'D' => {
             f(0, 1, "type", "u8", type_val(b[0]), "order delete".into(), C_TYPE);
             f(1, 4, "symbol_id", "u32", u32_at(b, 1).to_string(), sym_note.clone(), C_SYM);
-            f(5, 8, "order_id", "u64", fmt::hex_id(u64_at(b, 5)), id_note(u64_at(b, 5), &format!("removed {} resting", fmt::commas(e.qty as u64))), C_OID);
+            f(
+                5,
+                8,
+                "order_id",
+                "u64",
+                fmt::hex_id(u64_at(b, 5)),
+                id_note(u64_at(b, 5), &format!("removed {} resting", fmt::commas(e.qty as u64))),
+                C_OID,
+            );
             f(13, 8, "book_seq", "u64", fmt::hex_id(u64_at(b, 13)), fmt::short_id(u64_at(b, 13)), C_BSEQ);
             f(21, 8, "ts_ns", "u64", fmt::commas(u64_at(b, 21)), ts_note(u64_at(b, 21)), C_TS);
         }
@@ -103,7 +187,15 @@ pub fn fields(e: &EventRecord, ticker: &str) -> Vec<Field> {
             f(0, 1, "type", "u8", type_val(b[0]), "order replace (same id, back of queue)".into(), C_TYPE);
             f(1, 1, "side", "u8", type_val(b[1]), side_note(b[1]), C_SIDE);
             f(2, 4, "symbol_id", "u32", u32_at(b, 2).to_string(), sym_note.clone(), C_SYM);
-            f(6, 8, "order_id", "u64", fmt::hex_id(u64_at(b, 6)), id_note(u64_at(b, 6), "keeps its id, loses priority"), C_OID);
+            f(
+                6,
+                8,
+                "order_id",
+                "u64",
+                fmt::hex_id(u64_at(b, 6)),
+                id_note(u64_at(b, 6), "keeps its id, loses priority"),
+                C_OID,
+            );
             f(14, 8, "price", "u64", fmt::commas(u64_at(b, 14)), "new price".into(), C_PX);
             f(22, 4, "qty", "u32", fmt::commas(u32_at(b, 22)), "new resting quantity".into(), C_QTY);
             f(26, 8, "book_seq", "u64", fmt::hex_id(u64_at(b, 26)), fmt::short_id(u64_at(b, 26)), C_BSEQ);
@@ -114,12 +206,28 @@ pub fn fields(e: &EventRecord, ticker: &str) -> Vec<Field> {
             f(1, 1, "price_scale", "u8", b[1].to_string(), "implied decimals".into(), C_SIDE);
             f(2, 2, "reserved", "u16", u16_at(b, 2).to_string(), String::new(), C_BSEQ);
             f(4, 4, "symbol_id", "u32", u32_at(b, 4).to_string(), String::new(), C_SYM);
-            f(8, 8, "ticker", "char[8]", String::from_utf8_lossy(&b[8..16]).trim_end().to_string(), String::new(), C_OID);
+            f(
+                8,
+                8,
+                "ticker",
+                "char[8]",
+                String::from_utf8_lossy(&b[8..16]).trim_end().to_string(),
+                String::new(),
+                C_OID,
+            );
             f(16, 8, "ts_ns", "u64", fmt::commas(u64_at(b, 16)), ts_note(u64_at(b, 16)), C_TS);
         }
         b'S' => {
             f(0, 1, "type", "u8", type_val(b[0]), "system event".into(), C_TYPE);
-            f(1, 1, "event_code", "u8", type_val(b[1]), if b[1] == b'O' { "start of session".into() } else { "end of session".into() }, C_SIDE);
+            f(
+                1,
+                1,
+                "event_code",
+                "u8",
+                type_val(b[1]),
+                if b[1] == b'O' { "start of session".into() } else { "end of session".into() },
+                C_SIDE,
+            );
             f(2, 2, "version", "u16", u16_at(b, 2).to_string(), "protocol version".into(), C_SYM);
             f(4, 8, "ts_ns", "u64", fmt::commas(u64_at(b, 4)), ts_note(u64_at(b, 4)), C_TS);
         }

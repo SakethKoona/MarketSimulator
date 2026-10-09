@@ -87,8 +87,7 @@ impl Snapshot {
     /// latency percentiles are supplied by the caller, which keeps a
     /// one-second window of samples.
     pub fn build(session: &mut Session, depth: usize, revision: u64, latency: (u64, u64)) -> Snapshot {
-        let mut symbols: Vec<SymbolSnapshot> =
-            session.books.values().map(|b| book_snapshot(b, depth)).collect();
+        let mut symbols: Vec<SymbolSnapshot> = session.books.values().map(|b| book_snapshot(b, depth)).collect();
         symbols.sort_by_key(|s| s.symbol_id);
 
         let (p50, p99) = latency;

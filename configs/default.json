@@ -127,7 +127,7 @@
         },
         {
             "type": "plugin",
-            "path": "gateway/build/jsonl_ingress.dylib",
+            "path": "build/gateway/jsonl_ingress",
             "config": {
                 "port": 30020,
                 "bind": "0.0.0.0"

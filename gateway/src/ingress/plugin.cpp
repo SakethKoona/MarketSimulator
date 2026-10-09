@@ -1,5 +1,6 @@
 #include "ingress/plugin.hpp"
 #include <dlfcn.h>
+#include <unistd.h>
 #include <stdexcept>
 
 IngressPlugin::IngressPlugin(std::string name, Entry entry, void *dl_handle)
@@ -14,7 +15,20 @@ IngressPlugin::~IngressPlugin() {
         ::dlclose(dl_);
 }
 
-std::unique_ptr<IngressPlugin> IngressPlugin::load(const std::string &path) {
+std::unique_ptr<IngressPlugin> IngressPlugin::load(const std::string &path_in) {
+    // A path without an extension gets the platform's shared-library suffix,
+    // so one config works on macOS and Linux.
+    std::string path = path_in;
+    const std::string base = path.substr(path.find_last_of('/') + 1);
+    if (base.find('.') == std::string::npos) {
+        auto exists = [](const std::string &p) { return ::access(p.c_str(), R_OK) == 0; };
+#ifdef __APPLE__
+        const char *first = ".dylib", *second = ".so";
+#else
+        const char *first = ".so", *second = ".dylib";
+#endif
+        path = exists(path_in + first) || !exists(path_in + second) ? path_in + first : path_in + second;
+    }
     void *h = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!h)
         throw std::runtime_error(std::string("dlopen ") + path + ": " + ::dlerror());

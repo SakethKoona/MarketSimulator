@@ -216,8 +216,8 @@ mod tests {
     #[test]
     fn reference_add_order() {
         let bytes: [u8; 42] = [
-            0x41, 0x42, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0x69, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 2,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0x41, 0x42, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0x69, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         match decode(&bytes).unwrap() {
             Message::AddOrder(a) => {
@@ -230,10 +230,7 @@ mod tests {
             }
             other => panic!("decoded {other:?}"),
         }
-        assert_eq!(
-            decode(&bytes[..41]).unwrap_err(),
-            DecodeError::BadLength { ty: b'A', got: 41, expected: 42 }
-        );
+        assert_eq!(decode(&bytes[..41]).unwrap_err(), DecodeError::BadLength { ty: b'A', got: 41, expected: 42 });
         assert_eq!(decode(&[0x51]).unwrap_err(), DecodeError::UnknownType(0x51));
     }
 }

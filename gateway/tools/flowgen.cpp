@@ -6,8 +6,8 @@
 // its execution reports. Prints one stats line per second with round-trip
 // latency percentiles.
 //
-//   flowgen [--host H] [--port P] [--sessions N] [--rate R] [--seconds S]
-//           [--symbols AAPL,GOOG,NVDA | --config configs/default.json] [--seed K] [--quiet]
+//   flowgen [--host H] [--port P] [--sessions N] [--profile calm|busy|load | --rate R]
+//           [--seconds S] [--symbols AAPL,GOOG,NVDA | --config configs/default.json] [--seed K] [--quiet]
 // Without --symbols, the symbol list is read from --config (default:
 // configs/default.json, then ../configs/default.json).
 #include "protocol/boe.hpp"
@@ -59,7 +59,8 @@ struct Config {
     std::string host = "127.0.0.1";
     std::uint16_t port = 30000;
     int sessions = 4;
-    double rate = 20000; // aggregate orders/s
+    double rate = -1; // aggregate orders/s; -1 = from --profile
+    std::string profile = "calm"; // calm: 20/s per symbol, busy: 100/s per symbol, load: 20k total
     double seconds = 0;
     std::vector<std::string> symbols; // empty = from config
     std::string config;
@@ -450,6 +451,7 @@ int main(int argc, char **argv) {
         else if (!std::strcmp(argv[i], "--seed")) cfg.seed = std::strtoull(val("--seed"), nullptr, 10);
         else if (!std::strcmp(argv[i], "--quiet")) cfg.quiet = true;
         else if (!std::strcmp(argv[i], "--config")) cfg.config = val("--config");
+        else if (!std::strcmp(argv[i], "--profile")) cfg.profile = val("--profile");
         else if (!std::strcmp(argv[i], "--symbols")) {
             cfg.symbols.clear();
             std::string s = val("--symbols");
@@ -461,7 +463,7 @@ int main(int argc, char **argv) {
                 p = q + 1;
             }
         } else {
-            std::fprintf(stderr, "usage: flowgen [--host H] [--port P] [--sessions N] [--rate R] [--seconds S] [--symbols A,B | --config FILE] [--seed K] [--quiet]\n");
+            std::fprintf(stderr, "usage: flowgen [--host H] [--port P] [--sessions N] [--profile calm|busy|load | --rate R] [--seconds S] [--symbols A,B | --config FILE] [--seed K] [--quiet]\n");
             return 2;
         }
     }
@@ -493,6 +495,12 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "flowgen: no symbols; pass --symbols or --config\n");
             return 2;
         }
+    }
+    if (cfg.rate < 0) {
+        const double n = static_cast<double>(cfg.symbols.size());
+        if (cfg.profile == "busy") cfg.rate = 100.0 * n;
+        else if (cfg.profile == "load") cfg.rate = 20000.0;
+        else cfg.rate = 20.0 * n; // calm
     }
     std::signal(SIGINT, on_sig);
     std::signal(SIGTERM, on_sig);

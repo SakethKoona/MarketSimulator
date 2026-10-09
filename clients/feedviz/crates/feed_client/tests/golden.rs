@@ -73,7 +73,9 @@ fn check_capture(name: &str) {
     }
     eprintln!(
         "{name}: {} packets, {} messages, {} levels match",
-        session.stats.packets, session.stats.messages, want.len()
+        session.stats.packets,
+        session.stats.messages,
+        want.len()
     );
 }
 

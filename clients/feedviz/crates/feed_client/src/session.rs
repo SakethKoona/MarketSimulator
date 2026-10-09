@@ -37,9 +37,24 @@ pub struct EventRecord {
 impl Default for EventRecord {
     fn default() -> Self {
         EventRecord {
-            seq: 0, ts_ns: 0, recv_ns: 0, ty: 0, side: 0, symbol_id: 0, order_id: 0, price: 0, qty: 0,
-            remaining: 0, match_id: 0, book_seq: 0, packet_seq: 0, block: 0, packet_count: 0,
-            applied: Applied::default(), raw_len: 0, raw: [0; MAX_RAW],
+            seq: 0,
+            ts_ns: 0,
+            recv_ns: 0,
+            ty: 0,
+            side: 0,
+            symbol_id: 0,
+            order_id: 0,
+            price: 0,
+            qty: 0,
+            remaining: 0,
+            match_id: 0,
+            book_seq: 0,
+            packet_seq: 0,
+            block: 0,
+            packet_count: 0,
+            applied: Applied::default(),
+            raw_len: 0,
+            raw: [0; MAX_RAW],
         }
     }
 }
@@ -252,25 +267,41 @@ impl Session {
                 rec.applied = book.apply(&msg);
                 match &msg {
                     Message::AddOrder(m) => {
-                        rec.side = m.side; rec.order_id = m.order_id.get(); rec.price = m.price.get();
-                        rec.qty = m.qty.get(); rec.remaining = m.qty.get(); rec.book_seq = m.book_seq.get();
+                        rec.side = m.side;
+                        rec.order_id = m.order_id.get();
+                        rec.price = m.price.get();
+                        rec.qty = m.qty.get();
+                        rec.remaining = m.qty.get();
+                        rec.book_seq = m.book_seq.get();
                     }
                     Message::OrderExecuted(m) => {
-                        rec.side = m.side; rec.order_id = m.order_id.get(); rec.price = m.price.get();
-                        rec.qty = m.exec_qty.get(); rec.remaining = m.remaining_qty.get();
-                        rec.match_id = m.match_id.get(); rec.book_seq = m.book_seq.get();
+                        rec.side = m.side;
+                        rec.order_id = m.order_id.get();
+                        rec.price = m.price.get();
+                        rec.qty = m.exec_qty.get();
+                        rec.remaining = m.remaining_qty.get();
+                        rec.match_id = m.match_id.get();
+                        rec.book_seq = m.book_seq.get();
                     }
                     Message::OrderCancel(m) => {
-                        rec.order_id = m.order_id.get(); rec.qty = rec.applied.qty_moved;
-                        rec.remaining = m.remaining_qty.get(); rec.book_seq = m.book_seq.get();
+                        rec.order_id = m.order_id.get();
+                        rec.qty = rec.applied.qty_moved;
+                        rec.remaining = m.remaining_qty.get();
+                        rec.book_seq = m.book_seq.get();
                     }
                     Message::OrderDelete(m) => {
-                        rec.order_id = m.order_id.get(); rec.qty = rec.applied.qty_moved;
-                        rec.remaining = 0; rec.book_seq = m.book_seq.get();
+                        rec.order_id = m.order_id.get();
+                        rec.qty = rec.applied.qty_moved;
+                        rec.remaining = 0;
+                        rec.book_seq = m.book_seq.get();
                     }
                     Message::OrderReplace(m) => {
-                        rec.side = m.side; rec.order_id = m.order_id.get(); rec.price = m.price.get();
-                        rec.qty = m.qty.get(); rec.remaining = m.qty.get(); rec.book_seq = m.book_seq.get();
+                        rec.side = m.side;
+                        rec.order_id = m.order_id.get();
+                        rec.price = m.price.get();
+                        rec.qty = m.qty.get();
+                        rec.remaining = m.qty.get();
+                        rec.book_seq = m.book_seq.get();
                     }
                     _ => {}
                 }
