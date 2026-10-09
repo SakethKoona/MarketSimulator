@@ -91,22 +91,21 @@ fn tiles_for(sym: &SymbolSnapshot, depth_levels: usize) -> Vec<Tile> {
     let pressure = if bid_depth + ask_depth > 0 { (bid_depth as f64 - ask_depth as f64) / (bid_depth + ask_depth) as f64 * 100.0 } else { 0.0 };
     let f1 = last60.iter().rev().nth(1).copied().unwrap_or_default();
     let vwap = st.vwap();
-    let dir = |x: f64| if x >= 0.0 { BID } else { ASK };
+    let dir = |x: f64| if x >= 0.0 { th().bid } else { th().ask };
     vec![
-        Tile { name: "LAST", value: fmt::commas(st.last), chg: format!("{} {}  {:+.2}%", if chg >= 0 { "▲" } else { "▼" }, chg.abs(), chg_pct), color: AMBER_BRIGHT, chg_color: dir(chg as f64), spark: spark_rel(&closes), spark_color: dir(chg as f64) },
-        Tile { name: "VWAP", value: format!("{vwap:.1}"), chg: if st.last > 0 { format!("last {} by {:.1}", if st.last as f64 >= vwap { "above" } else { "below" }, (st.last as f64 - vwap).abs()) } else { String::new() }, color: TEXT, chg_color: DIM, spark: spark_rel(&closes), spark_color: AMBER_DIM },
-        Tile { name: "HIGH / LOW", value: format!("{} / {}", fmt::commas(st.high), fmt::commas(st.low)), chg: format!("range {}", st.high.saturating_sub(st.low)), color: TEXT, chg_color: DIM, spark: last60.iter().map(|f| f.trades as u64).collect(), spark_color: DIMMER },
-        Tile { name: "VOLUME", value: fmt::commas(vol), chg: format!("+{} last 60s", fmt::commas(vol60)), color: TEXT, chg_color: DIM, spark: last60.iter().map(|f| f.buy_vol + f.sell_vol).collect(), spark_color: Color::Rgb(107, 90, 42) },
-        Tile { name: "TRADES", value: fmt::commas(sym.trades), chg: format!("{} /s", fmt::commas(trades_s as u64)), color: TEXT, chg_color: DIM, spark: last60.iter().map(|f| f.trades as u64).collect(), spark_color: Color::Rgb(138, 58, 30) },
-        Tile { name: "AVG TRADE SIZE", value: format!("{avg_size:.1}"), chg: format!("{} {:.1} last 60s", if avg_size_prev >= avg_size { "▲" } else { "▼" }, avg_size_prev), color: TEXT, chg_color: dir(avg_size_prev - avg_size), spark: last60.iter().map(|f| if f.trades > 0 { (f.buy_vol + f.sell_vol) / f.trades as u64 } else { 0 }).collect(), spark_color: DIMMER },
-        Tile { name: "BUY VOL SHARE", value: format!("{buy_share:.0}%"), chg: "aggressor side".into(), color: dir(buy_share - 50.0), chg_color: DIM, spark: last60.iter().map(|f| if f.buy_vol + f.sell_vol > 0 { f.buy_vol * 100 / (f.buy_vol + f.sell_vol) } else { 50 }).collect(), spark_color: BID_BAR_SOLID },
-        Tile { name: "AVG SPREAD", value: format!("{:.1}", st.avg_spread()), chg: format!("now {spread_now}"), color: TEXT, chg_color: DIM, spark: last60.iter().map(|f| if f.spread_n > 0 { f.spread_sum / f.spread_n as u64 } else { 0 }).collect(), spark_color: Color::Rgb(107, 90, 42) },
-        Tile { name: "BOOK PRESSURE", value: format!("{pressure:+.0}%"), chg: format!("{} heavy · top {}", if pressure >= 0.0 { "bid" } else { "ask" }, depth_levels), color: dir(pressure), chg_color: DIM, spark: Vec::new(), spark_color: DIMMER },
-        Tile { name: "ORDER FLOW /s", value: format!("{} A", fmt::commas(f1.adds as u64)), chg: format!("{} X/D {} E {} U", fmt::commas(f1.cancels as u64), fmt::commas(f1.execs as u64), fmt::commas(f1.replaces as u64)), color: TEXT, chg_color: DIM, spark: last60.iter().map(|f| f.messages as u64).collect(), spark_color: Color::Rgb(74, 74, 74) },
+        Tile { name: "LAST", value: fmt::commas(st.last), chg: format!("{} {}  {:+.2}%", if chg >= 0 { "▲" } else { "▼" }, chg.abs(), chg_pct), color: th().amber_bright, chg_color: dir(chg as f64), spark: spark_rel(&closes), spark_color: dir(chg as f64) },
+        Tile { name: "VWAP", value: format!("{vwap:.1}"), chg: if st.last > 0 { format!("last {} by {:.1}", if st.last as f64 >= vwap { "above" } else { "below" }, (st.last as f64 - vwap).abs()) } else { String::new() }, color: th().text, chg_color: th().dim, spark: spark_rel(&closes), spark_color: th().amber_dim },
+        Tile { name: "HIGH / LOW", value: format!("{} / {}", fmt::commas(st.high), fmt::commas(st.low)), chg: format!("range {}", st.high.saturating_sub(st.low)), color: th().text, chg_color: th().dim, spark: last60.iter().map(|f| f.trades as u64).collect(), spark_color: th().dimmer },
+        Tile { name: "VOLUME", value: fmt::commas(vol), chg: format!("+{} last 60s", fmt::commas(vol60)), color: th().text, chg_color: th().dim, spark: last60.iter().map(|f| f.buy_vol + f.sell_vol).collect(), spark_color: th().mix_x },
+        Tile { name: "TRADES", value: fmt::commas(sym.trades), chg: format!("{} /s", fmt::commas(trades_s as u64)), color: th().text, chg_color: th().dim, spark: last60.iter().map(|f| f.trades as u64).collect(), spark_color: th().ask_bar_solid },
+        Tile { name: "AVG TRADE SIZE", value: format!("{avg_size:.1}"), chg: format!("{} {:.1} last 60s", if avg_size_prev >= avg_size { "▲" } else { "▼" }, avg_size_prev), color: th().text, chg_color: dir(avg_size_prev - avg_size), spark: last60.iter().map(|f| if f.trades > 0 { (f.buy_vol + f.sell_vol) / f.trades as u64 } else { 0 }).collect(), spark_color: th().dimmer },
+        Tile { name: "BUY VOL SHARE", value: format!("{buy_share:.0}%"), chg: "aggressor side".into(), color: dir(buy_share - 50.0), chg_color: th().dim, spark: last60.iter().map(|f| if f.buy_vol + f.sell_vol > 0 { f.buy_vol * 100 / (f.buy_vol + f.sell_vol) } else { 50 }).collect(), spark_color: th().bid_bar_solid },
+        Tile { name: "AVG SPREAD", value: format!("{:.1}", st.avg_spread()), chg: format!("now {spread_now}"), color: th().text, chg_color: th().dim, spark: last60.iter().map(|f| if f.spread_n > 0 { f.spread_sum / f.spread_n as u64 } else { 0 }).collect(), spark_color: th().mix_x },
+        Tile { name: "BOOK PRESSURE", value: format!("{pressure:+.0}%"), chg: format!("{} heavy · top {}", if pressure >= 0.0 { "bid" } else { "ask" }, depth_levels), color: dir(pressure), chg_color: th().dim, spark: Vec::new(), spark_color: th().dimmer },
+        Tile { name: "ORDER FLOW /s", value: format!("{} A", fmt::commas(f1.adds as u64)), chg: format!("{} X/D {} E {} U", fmt::commas(f1.cancels as u64), fmt::commas(f1.execs as u64), fmt::commas(f1.replaces as u64)), color: th().text, chg_color: th().dim, spark: last60.iter().map(|f| f.messages as u64).collect(), spark_color: th().mix_d },
     ]
 }
 
-const BID_BAR_SOLID: Color = Color::Rgb(43, 79, 122);
 
 fn tiles_per_row(width: u16) -> usize {
     if width >= 120 { 5 } else if width >= 72 { 3 } else { 2 }
@@ -160,12 +159,11 @@ fn draw_flow(f: &mut Frame, app: &App, area: Rect) {
     let tot_s: u64 = sells.iter().sum();
     let (pb, ps) = if tot_b + tot_s > 0 { (tot_b * 100 / (tot_b + tot_s), tot_s * 100 / (tot_b + tot_s)) } else { (50, 50) };
 
-    bar_chart(f, cols[0], "TRADES/s", &fmt::commas(now_trades as u64), &[(&trades, ASK_BAR_SOLID)], false);
-    bar_chart(f, cols[1], "BUY·SELL VOL/s", &format!("{pb}%/{ps}%"), &[(&buys, BID_BAR_SOLID), (&sells, ASK_BAR_SOLID)], true);
-    bar_chart(f, cols[2], "SPREAD", &format!("{} avg {:.1}", sym.spread().unwrap_or(0), sym.session.avg_spread()), &[(&spreads, Color::Rgb(107, 90, 42))], false);
+    bar_chart(f, cols[0], "TRADES/s", &fmt::commas(now_trades as u64), &[(&trades, th().ask_bar_solid)], false);
+    bar_chart(f, cols[1], "BUY·SELL VOL/s", &format!("{pb}%/{ps}%"), &[(&buys, th().bid_bar_solid), (&sells, th().ask_bar_solid)], true);
+    bar_chart(f, cols[2], "SPREAD", &format!("{} avg {:.1}", sym.spread().unwrap_or(0), sym.session.avg_spread()), &[(&spreads, th().mix_x)], false);
 }
 
-const ASK_BAR_SOLID: Color = Color::Rgb(138, 58, 30);
 
 /// Vertical bars at one column per second, right-aligned. With `stacked`
 /// the second series sits under the first.
@@ -177,7 +175,7 @@ fn bar_chart(f: &mut Frame, area: Rect, title: &str, value: &str, series: &[(&[u
     let title_w = w.saturating_sub(value.chars().count() + 1);
     // Title yields to the value when the column is too narrow for both.
     let title_shown = if title.chars().count() <= title_w { title } else if title_w >= 6 { &title[..title.char_indices().nth(title_w - 1).map(|(i, _)| i).unwrap_or(0)] } else { "" };
-    let head = Line::from(vec![Span::styled(pad_right(title_shown, title_w), dim()), Span::raw(" "), Span::styled(value.to_string(), fg(TEXT))]);
+    let head = Line::from(vec![Span::styled(pad_right(title_shown, title_w), dim()), Span::raw(" "), Span::styled(value.to_string(), fg(th().text))]);
     f.render_widget(Paragraph::new(head), Rect { x: area.x + 1, y: area.y, width: w as u16, height: 1 });
     let plot = Rect { x: area.x + 1, y: area.y + 1, width: w as u16, height: area.height - 1 };
     let n = series[0].0.len().min(w);
@@ -207,8 +205,8 @@ fn bar_chart(f: &mut Frame, area: Rect, title: &str, value: &str, series: &[(&[u
                         // its colour as background and draw the top half.
                         ("▄", true) => { c.set_symbol("▀").set_fg(*color).set_bg(prev_fg); }
                         ("▀", false) => { c.set_symbol("▄").set_fg(*color).set_bg(prev_fg); }
-                        (_, true) => { c.set_symbol("▀").set_fg(*color).set_bg(BG); }
-                        (_, false) => { c.set_symbol("▄").set_fg(*color).set_bg(BG); }
+                        (_, true) => { c.set_symbol("▀").set_fg(*color).set_bg(th().bg); }
+                        (_, false) => { c.set_symbol("▄").set_fg(*color).set_bg(th().bg); }
                     }
                 }
             }
@@ -227,7 +225,7 @@ fn draw_monitor(f: &mut Frame, app: &App, area: Rect) {
     let w = inner.width as usize;
     let wide = w >= 62;
     let head = if wide {
-        format!("{} {} {} {} {} {} {} {}", pad_right("SYM", 6), pad_left("LAST", 8), pad_left("CHG", 6), pad_left("BID", 8), pad_left("ASK", 8), pad_left("SPR", 4), pad_left("VOL", 10), pad_left("MSG/s", 7))
+        format!("{} {} {} {} {} {} {} {}", pad_right("SYM", 6), pad_left("LAST", 8), pad_left("CHG", 6), pad_left("th().bid", 8), pad_left("th().ask", 8), pad_left("SPR", 4), pad_left("VOL", 10), pad_left("MSG/s", 7))
     } else {
         format!("{} {} {} {} {}", pad_right("SYM", 6), pad_left("LAST", 8), pad_left("CHG", 6), pad_left("SPR", 4), pad_left("VOL", 10))
     };
@@ -235,25 +233,25 @@ fn draw_monitor(f: &mut Frame, app: &App, area: Rect) {
     for (i, s) in app.snap.symbols.iter().enumerate() {
         let st = &s.session;
         let chg = st.last as i64 - st.open as i64;
-        let c = if chg >= 0 { BID } else { ASK };
-        let bg = if i == app.sym_idx { SELECT_BG } else { BG };
+        let c = if chg >= 0 { th().bid } else { th().ask };
+        let bg = if i == app.sym_idx { th().select_bg } else { th().bg };
         let st_ = |col: Color| Style::default().fg(col).bg(bg);
         let closes: Vec<u64> = s.bars[0].iter().rev().take(8).rev().map(|b| b.close).collect();
         let min = closes.iter().copied().min().unwrap_or(0);
         let spark: Vec<u64> = closes.iter().map(|x| x - min + 1).collect();
         let mut spans = vec![
-            Span::styled(pad_right(&sym_name(s), 6), if i == app.sym_idx { bold(AMBER_BRIGHT).bg(bg) } else { st_(TEXT) }),
-            Span::styled(format!(" {}", pad_left(&fmt::commas(st.last), 8)), st_(TEXT)),
+            Span::styled(pad_right(&sym_name(s), 6), if i == app.sym_idx { bold(th().amber_bright).bg(bg) } else { st_(th().text) }),
+            Span::styled(format!(" {}", pad_left(&fmt::commas(st.last), 8)), st_(th().text)),
             Span::styled(format!(" {}", pad_left(&format!("{chg:+}"), 6)), st_(c)),
         ];
         if wide {
-            spans.push(Span::styled(format!(" {}", pad_left(&s.best_bid().map(|l| fmt::commas(l.price)).unwrap_or_default(), 8)), st_(BID_TEXT)));
-            spans.push(Span::styled(format!(" {}", pad_left(&s.best_ask().map(|l| fmt::commas(l.price)).unwrap_or_default(), 8)), st_(ASK_TEXT)));
+            spans.push(Span::styled(format!(" {}", pad_left(&s.best_bid().map(|l| fmt::commas(l.price)).unwrap_or_default(), 8)), st_(th().bid_text)));
+            spans.push(Span::styled(format!(" {}", pad_left(&s.best_ask().map(|l| fmt::commas(l.price)).unwrap_or_default(), 8)), st_(th().ask_text)));
         }
-        spans.push(Span::styled(format!(" {}", pad_left(&s.spread().map(|x| x.to_string()).unwrap_or_default(), 4)), st_(DIM)));
-        spans.push(Span::styled(format!(" {}", pad_left(&fmt::commas(s.volume), 10)), st_(TEXT)));
+        spans.push(Span::styled(format!(" {}", pad_left(&s.spread().map(|x| x.to_string()).unwrap_or_default(), 4)), st_(th().dim)));
+        spans.push(Span::styled(format!(" {}", pad_left(&fmt::commas(s.volume), 10)), st_(th().text)));
         if wide {
-            spans.push(Span::styled(format!(" {}", pad_left(&fmt::commas(s.msgs_per_sec as u64), 7)), st_(DIM)));
+            spans.push(Span::styled(format!(" {}", pad_left(&fmt::commas(s.msgs_per_sec as u64), 7)), st_(th().dim)));
         }
         spans.push(Span::styled(format!(" {}", fmt::spark(&spark, 8)), st_(c)));
         let used: usize = spans.iter().map(|x| x.content.chars().count()).sum();
@@ -272,15 +270,15 @@ fn draw_health_strip(f: &mut Frame, app: &App, area: Rect) {
     let sparkw = w.saturating_sub(8 + 12);
     let (_, fp99) = app.frame_percentiles();
     let lines = vec![
-        Line::from(vec![Span::styled(pad_right("msgs/s", 8), dim()), Span::styled(fmt::spark(&s.rate_hist, sparkw), fg(BID)), Span::styled(pad_left(&fmt::commas(s.msgs_per_sec), 12), fg(TEXT))]),
-        Line::from(vec![Span::styled(pad_right("lat p99", 8), dim()), Span::styled(fmt::spark(&s.p99_hist, sparkw), fg(AMBER)), Span::styled(pad_left(&fmt::micros(s.latency_p99_ns), 12), fg(TEXT))]),
+        Line::from(vec![Span::styled(pad_right("msgs/s", 8), dim()), Span::styled(fmt::spark(&s.rate_hist, sparkw), fg(th().bid)), Span::styled(pad_left(&fmt::commas(s.msgs_per_sec), 12), fg(th().text))]),
+        Line::from(vec![Span::styled(pad_right("lat p99", 8), dim()), Span::styled(fmt::spark(&s.p99_hist, sparkw), fg(th().amber)), Span::styled(pad_left(&fmt::micros(s.latency_p99_ns), 12), fg(th().text))]),
         Line::from(vec![
-            Span::styled("frame ", dim()), Span::styled(format!("{:.1} ms", fp99 as f64 / 1000.0), fg(TEXT)),
-            Span::styled("   ring ", dim()), Span::styled(format!("{:.0}%", s.ring_occupancy * 100.0), fg(TEXT)),
-            Span::styled("   drops ", dim()), Span::styled(fmt::commas(s.ring_drops), fg(if s.ring_drops > 0 { RED } else { GREEN })),
-            Span::styled("   gaps ", dim()), Span::styled(s.stats.gaps.to_string(), fg(if s.stats.gaps > 0 { RED } else { GREEN })),
-            Span::styled("   dups ", dim()), Span::styled(fmt::commas(s.stats.duplicates), fg(TEXT)),
-            Span::styled(if s.stale { "   STALE" } else { "" }, bold(RED)),
+            Span::styled("frame ", dim()), Span::styled(format!("{:.1} ms", fp99 as f64 / 1000.0), fg(th().text)),
+            Span::styled("   ring ", dim()), Span::styled(format!("{:.0}%", s.ring_occupancy * 100.0), fg(th().text)),
+            Span::styled("   drops ", dim()), Span::styled(fmt::commas(s.ring_drops), fg(if s.ring_drops > 0 { th().red } else { th().green })),
+            Span::styled("   gaps ", dim()), Span::styled(s.stats.gaps.to_string(), fg(if s.stats.gaps > 0 { th().red } else { th().green })),
+            Span::styled("   dups ", dim()), Span::styled(fmt::commas(s.stats.duplicates), fg(th().text)),
+            Span::styled(if s.stale { "   STALE" } else { "" }, bold(th().red)),
         ]),
     ];
     f.render_widget(Paragraph::new(lines), inner);

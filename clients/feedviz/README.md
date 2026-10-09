@@ -49,7 +49,25 @@ in the config's `feed` block; on Linux the defaults work. Replay a capture
 instead with `--replay testdata/capture.bin` (the replay runs as fast as the
 book thread can apply it; pause with space to look around). Other flags:
 `--group`, `--port`, `--fps N` (default 60), `--seconds S` to exit after S
-seconds, `--headless` for the line-per-second monitor instead of the UI.
+seconds, `--headless` for the line-per-second monitor instead of the UI,
+`--theme NAME` to start in a theme.
+
+### Themes
+
+`t` cycles, `--theme` selects. All five keep bids and asks apart in
+lightness as well as hue, reserve the chrome colour for titles and keys,
+and keep dim text readable on the ground.
+
+| name | ground | chrome | bids / asks | for |
+|---|---|---|---|---|
+| `amber` | black | Bloomberg amber | blue / orange | default |
+| `midnight` | deep navy | ice blue | cyan / magenta | low glare |
+| `phosphor` | near-black green | phosphor green | bright green / amber | CRT look |
+| `solarized` | base03 | yellow | blue / orange | solarized users |
+| `paper` | warm off-white | ochre | navy / burnt orange | bright rooms |
+
+Themes live in `crates/tui/src/theme.rs` as one struct each; adding one is
+a new entry in `THEMES`.
 
 Use a GPU terminal (Ghostty, kitty, WezTerm, iTerm2) with a monospace font
 that has the block and box-drawing glyphs; 200×55 or larger shows every
@@ -65,6 +83,7 @@ column, 140×40 is the comfortable minimum.
 | `[` `]` | previous / next symbol |
 | `d` | ladder depth 10 → 14 → 20 → 40 |
 | `i` | candle interval 1s → 5s → 30s → 1m |
+| `t` | next theme |
 | `Esc` | clear selection and follow, back to live |
 
 | key | EVENTS screen |

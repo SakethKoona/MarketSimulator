@@ -8,7 +8,7 @@ use crate::theme::*;
 use crate::ui::{draw_footer_keys, draw_header, draw_health, draw_inspector_panel, event_cols, event_line, pad_left, pad_right, panel, sym_name};
 use feed_client::EventRecord;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
@@ -42,15 +42,15 @@ fn draw_log(f: &mut Frame, app: &App, area: Rect) {
     let mut bar: Vec<Span> = vec![Span::styled("TYPES ", dim())];
     for (i, t) in TYPE_KEYS.iter().enumerate() {
         let on = app.type_mask & (1 << i) != 0;
-        let (fgc, bgc) = if on { (Color::Rgb(7, 7, 7), type_color(*t)) } else { (DIMMER, Color::Rgb(26, 26, 26)) };
+        let (fgc, bgc) = if on { (th().bg, type_color(*t)) } else { (th().dimmer, th().panel_alt) };
         bar.push(Span::styled(format!(" {} ", *t as char), Style::default().fg(fgc).bg(bgc).add_modifier(ratatui::style::Modifier::BOLD)));
         bar.push(Span::raw(" "));
     }
     bar.push(Span::styled("  SYMBOL ", dim()));
-    bar.push(Span::styled(if app.filter_sym { app.current_symbol().map(sym_name).unwrap_or_default() } else { "all".into() }, fg(AMBER_BRIGHT)));
+    bar.push(Span::styled(if app.filter_sym { app.current_symbol().map(sym_name).unwrap_or_default() } else { "all".into() }, fg(th().amber_bright)));
     bar.push(Span::styled("  FOLLOW ", dim()));
     match app.follow {
-        Some(id) => bar.push(Span::styled(fmt::hex_id(id), fg(AMBER_BRIGHT))),
+        Some(id) => bar.push(Span::styled(fmt::hex_id(id), fg(th().amber_bright))),
         None => bar.push(Span::styled("none · o on a row pins its order", dimmer())),
     }
     f.render_widget(Paragraph::new(Line::from(bar)), Rect { x: inner.x, y: inner.y, width: inner.width, height: 1 });
@@ -96,7 +96,7 @@ fn draw_lifecycle_strip(f: &mut Frame, app: &App, area: Rect) {
             _ => format!(" {} ", x.ty as char),
         };
         let here = x.seq == e.seq;
-        chain.push(Span::styled(label, if here { bold(AMBER_BRIGHT).bg(SELECT_BG) } else { fg(type_color(x.ty)).bg(Color::Rgb(16, 16, 16)) }));
+        chain.push(Span::styled(label, if here { bold(th().amber_bright).bg(th().select_bg) } else { fg(type_color(x.ty)).bg(th().panel_alt) }));
         if i + 1 < same.len() {
             chain.push(Span::styled(" → ", dimmer()));
         }

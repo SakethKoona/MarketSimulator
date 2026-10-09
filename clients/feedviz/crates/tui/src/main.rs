@@ -44,6 +44,7 @@ fn parse_args() -> Result<Args> {
     let mut interval_ms = 1000u64;
     let mut headless = false;
     let mut fps = 60u64;
+    let mut theme_name: Option<String> = None;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         let mut val = || it.next().ok_or_else(|| anyhow::anyhow!("missing value for {a}"));
@@ -57,11 +58,18 @@ fn parse_args() -> Result<Args> {
             "--interval-ms" => interval_ms = val()?.parse()?,
             "--fps" => fps = val()?.parse()?,
             "--headless" => headless = true,
+            "--theme" => theme_name = Some(val()?),
             "-h" | "--help" => {
-                println!("feedviz [--group G] [--port P] [--iface IP] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS]");
+                println!("feedviz [--group G] [--port P] [--iface IP] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS] [--theme amber|midnight|phosphor|solarized|paper]");
                 std::process::exit(0);
             }
             other => bail!("unknown argument {other}"),
+        }
+    }
+    if let Some(name) = theme_name {
+        match theme::by_name(&name) {
+            Some(i) => theme::set(i),
+            None => bail!("unknown theme {name}; one of {}", theme::THEMES.iter().map(|t| t.name).collect::<Vec<_>>().join(", ")),
         }
     }
     let source = match replay {
@@ -139,6 +147,16 @@ mod render_tests {
                 }
             }
         }
+        // Every theme renders both screens.
+        for i in 0..theme::THEMES.len() {
+            theme::set(i);
+            let mut term = Terminal::new(TestBackend::new(200, 55)).unwrap();
+            app.screen = app::Screen::Market;
+            term.draw(|f| ui::draw(f, &app)).unwrap();
+            app.screen = app::Screen::Events;
+            term.draw(|f| ui::draw(f, &app)).unwrap();
+        }
+        theme::set(0);
         // Key handling smoke: walk the log and toggles without panicking.
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);

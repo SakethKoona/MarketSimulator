@@ -61,7 +61,7 @@ pub fn draw_classic(f: &mut Frame, app: &App) {
 // ------------------------------------------------------------ helpers
 
 pub fn panel(f: &mut Frame, area: Rect, title: &str, sub: &str) -> Rect {
-    let block = Block::default().borders(Borders::ALL).border_style(fg(BORDER));
+    let block = Block::default().borders(Borders::ALL).border_style(fg(th().border));
     let inner = block.inner(area);
     f.render_widget(block, area);
     // Title strip inside the border.
@@ -106,71 +106,71 @@ pub fn sym_name(s: &SymbolSnapshot) -> String {
 
 pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.snap;
-    let mut spans = vec![Span::styled(" FEEDVIZ ", bold(AMBER_BRIGHT).bg(HDR_BG)), Span::styled(" ", Style::default().bg(HDR_BG))];
+    let mut spans = vec![Span::styled(" FEEDVIZ ", bold(th().amber_bright).bg(th().hdr_bg)), Span::styled(" ", Style::default().bg(th().hdr_bg))];
     for (name, sc) in [("MARKET", crate::app::Screen::Market), ("EVENTS", crate::app::Screen::Events)] {
         if app.screen == sc {
-            spans.push(Span::styled(format!(" {name} "), Style::default().fg(HDR_BG).bg(AMBER).add_modifier(ratatui::style::Modifier::BOLD)));
+            spans.push(Span::styled(format!(" {name} "), Style::default().fg(th().hdr_bg).bg(th().amber).add_modifier(ratatui::style::Modifier::BOLD)));
         } else {
-            spans.push(Span::styled(format!(" {name} "), Style::default().fg(AMBER).bg(HDR_BG)));
+            spans.push(Span::styled(format!(" {name} "), Style::default().fg(th().amber).bg(th().hdr_bg)));
         }
     }
-    spans.push(Span::styled("  ", Style::default().bg(HDR_BG)));
+    spans.push(Span::styled("  ", Style::default().bg(th().hdr_bg)));
     for (i, sym) in s.symbols.iter().enumerate() {
         let name = format!(" {} ", sym_name(sym));
         if i == app.sym_idx {
-            spans.push(Span::styled(name, Style::default().fg(PAUSE_FG).bg(PAUSE_BG).add_modifier(ratatui::style::Modifier::BOLD)));
+            spans.push(Span::styled(name, Style::default().fg(th().pause_fg).bg(th().pause_bg).add_modifier(ratatui::style::Modifier::BOLD)));
         } else {
-            spans.push(Span::styled(name, Style::default().fg(AMBER).bg(HDR_BG)));
+            spans.push(Span::styled(name, Style::default().fg(th().amber).bg(th().hdr_bg)));
         }
-        spans.push(Span::styled(" ", Style::default().bg(HDR_BG)));
+        spans.push(Span::styled(" ", Style::default().bg(th().hdr_bg)));
     }
     let kv = |k: &str, v: String, c: Color| {
-        vec![Span::styled(format!("  {k} "), Style::default().fg(AMBER_DIM).bg(HDR_BG)), Span::styled(v, Style::default().fg(c).bg(HDR_BG))]
+        vec![Span::styled(format!("  {k} "), Style::default().fg(th().amber_dim).bg(th().hdr_bg)), Span::styled(v, Style::default().fg(c).bg(th().hdr_bg))]
     };
     let session = String::from_utf8_lossy(&s.stats.session).trim().to_string();
     let wide = area.width >= 170;
     if wide {
-        spans.extend(kv("SESSION", if session.is_empty() { "-".into() } else { session }, AMBER_TEXT));
+        spans.extend(kv("SESSION", if session.is_empty() { "-".into() } else { session }, th().amber_text));
     }
-    spans.extend(kv("SEQ", fmt::commas(s.stats.next_seq), AMBER_TEXT));
-    spans.extend(kv("MSGS/S", fmt::commas(s.msgs_per_sec), AMBER_TEXT));
-    spans.extend(kv("P99", fmt::micros(s.latency_p99_ns), AMBER_TEXT));
-    spans.extend(kv("GAPS", s.stats.gaps.to_string(), if s.stats.gaps > 0 { RED } else { AMBER_TEXT }));
+    spans.extend(kv("SEQ", fmt::commas(s.stats.next_seq), th().amber_text));
+    spans.extend(kv("MSGS/S", fmt::commas(s.msgs_per_sec), th().amber_text));
+    spans.extend(kv("P99", fmt::micros(s.latency_p99_ns), th().amber_text));
+    spans.extend(kv("GAPS", s.stats.gaps.to_string(), if s.stats.gaps > 0 { th().red } else { th().amber_text }));
     if wide {
         let shards = s.symbols.iter().map(|x| fmt::shard_of(x.book_seq)).max().map(|m| m as usize + 1).unwrap_or(1);
-        spans.extend(kv("SHARDS", shards.to_string(), AMBER_TEXT));
+        spans.extend(kv("SHARDS", shards.to_string(), th().amber_text));
     }
     let clock = s.events.last().map(|e| fmt::time_ms(e.ts_ns)).unwrap_or_else(|| "--:--:--.---".into());
     let state = if app.paused {
-        Span::styled(" ❚❚ PAUSED ", bold(PAUSE_FG).bg(PAUSE_BG))
+        Span::styled(" ❚❚ PAUSED ", bold(th().pause_fg).bg(th().pause_bg))
     } else if app.replay && s.finished {
-        Span::styled(" ■ ENDED ", bold(PAUSE_FG).bg(PAUSE_BG))
+        Span::styled(" ■ ENDED ", bold(th().pause_fg).bg(th().pause_bg))
     } else if app.replay {
-        Span::styled(" ▶ REPLAY ", bold(LIVE_FG).bg(LIVE_BG))
+        Span::styled(" ▶ REPLAY ", bold(th().live_fg).bg(th().live_bg))
     } else {
-        Span::styled(" ● LIVE ", bold(LIVE_FG).bg(LIVE_BG))
+        Span::styled(" ● LIVE ", bold(th().live_fg).bg(th().live_bg))
     };
-    let right = vec![Span::styled(format!("{clock}  "), Style::default().fg(AMBER_TEXT).bg(HDR_BG)), state, Span::styled(" ", Style::default().bg(HDR_BG))];
+    let right = vec![Span::styled(format!("{clock}  "), Style::default().fg(th().amber_text).bg(th().hdr_bg)), state, Span::styled(" ", Style::default().bg(th().hdr_bg))];
     let left_len: usize = spans.iter().map(|x| x.content.chars().count()).sum();
     let right_len: usize = right.iter().map(|x| x.content.chars().count()).sum();
     let pad = (area.width as usize).saturating_sub(left_len + right_len).max(2);
-    spans.push(Span::styled(" ".repeat(pad), Style::default().bg(HDR_BG)));
+    spans.push(Span::styled(" ".repeat(pad), Style::default().bg(th().hdr_bg)));
     spans.extend(right);
-    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(HDR_BG)), area);
+    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(th().hdr_bg)), area);
 }
 
 pub fn draw_footer_keys(f: &mut Frame, area: Rect, keys: &[(&str, &str)]) {
-    let mut spans = vec![Span::styled(" ", Style::default().bg(PANEL_HDR_BG))];
+    let mut spans = vec![Span::styled(" ", Style::default().bg(th().panel_hdr_bg))];
     for (k, v) in keys {
-        spans.push(Span::styled(k.to_string(), bold(AMBER).bg(PANEL_HDR_BG)));
-        spans.push(Span::styled(format!(" {v}   "), Style::default().fg(DIM).bg(PANEL_HDR_BG)));
+        spans.push(Span::styled(k.to_string(), bold(th().amber).bg(th().panel_hdr_bg)));
+        spans.push(Span::styled(format!(" {v}   "), Style::default().fg(th().dim).bg(th().panel_hdr_bg)));
     }
-    let tail = "feedviz 0.2 · feed v1 · ratatui ";
+    let tail = format!("theme {} (t) · feedviz 0.2 ", th().name);
     let used: usize = spans.iter().map(|x| x.content.chars().count()).sum();
-    let pad = (area.width as usize).saturating_sub(used + tail.len());
-    spans.push(Span::styled(" ".repeat(pad), Style::default().bg(PANEL_HDR_BG)));
-    spans.push(Span::styled(tail, Style::default().fg(DIMMER).bg(PANEL_HDR_BG)));
-    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(PANEL_HDR_BG)), area);
+    let pad = (area.width as usize).saturating_sub(used + tail.chars().count());
+    spans.push(Span::styled(" ".repeat(pad), Style::default().bg(th().panel_hdr_bg)));
+    spans.push(Span::styled(tail, Style::default().fg(th().dimmer).bg(th().panel_hdr_bg)));
+    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(th().panel_hdr_bg)), area);
 }
 
 fn draw_footer(f: &mut Frame, area: Rect) {
@@ -193,7 +193,7 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
     let barw = w.saturating_sub(fixed) / 2;
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(vec![Span::styled(
-        format!("{} {} {} {} {} {} {}", pad_left("ORD", 3), pad_left("BID", 8), " ".repeat(barw), center("PRICE", 9), " ".repeat(barw), pad_right("ASK", 8), pad_right("ORD", 3)),
+        format!("{} {} {} {} {} {} {}", pad_left("ORD", 3), pad_left("th().bid", 8), " ".repeat(barw), center("PRICE", 9), " ".repeat(barw), pad_right("th().ask", 8), pad_right("ORD", 3)),
         dim(),
     )]));
     let rows_avail = inner.height.saturating_sub(2) as usize; // header + mid line
@@ -206,12 +206,12 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
         let bw = ((l.cum as f64 / max_cum as f64) * barw as f64).round() as usize;
         lines.push(Line::from(vec![
             Span::raw(format!("{} {} {} ", " ".repeat(3), " ".repeat(8), " ".repeat(barw))),
-            Span::styled(center(&fmt::commas(l.price), 9), fg(ASK)),
+            Span::styled(center(&fmt::commas(l.price), 9), fg(th().ask)),
             Span::raw(" "),
-            Span::styled(" ".repeat(bw.min(barw)), Style::default().bg(ASK_BAR)),
+            Span::styled(" ".repeat(bw.min(barw)), Style::default().bg(th().ask_bar)),
             Span::raw(" ".repeat(barw.saturating_sub(bw))),
             Span::raw(" "),
-            Span::styled(pad_right(&fmt::commas(l.qty), 8), fg(ASK_TEXT)),
+            Span::styled(pad_right(&fmt::commas(l.qty), 8), fg(th().ask_text)),
             Span::raw(" "),
             Span::styled(pad_right(&l.count.to_string(), 3), dim()),
         ]));
@@ -225,11 +225,11 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
             let midpx = (a.price + b.price) as f64 / 2.0;
             Line::from(vec![
                 Span::styled(" MID ", dim()),
-                Span::styled(format!("{midpx:.1}"), bold(AMBER)),
+                Span::styled(format!("{midpx:.1}"), bold(th().amber)),
                 Span::styled("  SPREAD ", dim()),
                 Span::styled(fmt::commas(a.price - b.price), amber()),
                 Span::styled("  IMB ", dim()),
-                Span::styled(format!("{imb:+.0}%"), fg(if imb >= 0.0 { BID } else { ASK })),
+                Span::styled(format!("{imb:+.0}%"), fg(if imb >= 0.0 { th().bid } else { th().ask })),
             ])
         }
         _ => Line::from(Span::styled(" MID  —", dim())),
@@ -240,12 +240,12 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(vec![
             Span::styled(pad_left(&l.count.to_string(), 3), dim()),
             Span::raw(" "),
-            Span::styled(pad_left(&fmt::commas(l.qty), 8), fg(BID_TEXT)),
+            Span::styled(pad_left(&fmt::commas(l.qty), 8), fg(th().bid_text)),
             Span::raw(" "),
             Span::raw(" ".repeat(barw.saturating_sub(bw))),
-            Span::styled(" ".repeat(bw.min(barw)), Style::default().bg(BID_BAR)),
+            Span::styled(" ".repeat(bw.min(barw)), Style::default().bg(th().bid_bar)),
             Span::raw(" "),
-            Span::styled(center(&fmt::commas(l.price), 9), fg(BID)),
+            Span::styled(center(&fmt::commas(l.price), 9), fg(th().bid)),
         ]));
     }
     // Footer line inside the panel if room remains.
@@ -253,14 +253,14 @@ pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(" LAST ", dim()),
         Span::styled(
             sym.last_trade.map(|t| format!("{} × {}", fmt::commas(t.price), fmt::commas(t.qty as u64))).unwrap_or_else(|| "—".into()),
-            fg(sym.last_trade.map(|t| if t.aggressor_buy { BID } else { ASK }).unwrap_or(DIM)),
+            fg(sym.last_trade.map(|t| if t.aggressor_buy { th().bid } else { th().ask }).unwrap_or(th().dim)),
         ),
         Span::styled("  VOL ", dim()),
-        Span::styled(fmt::commas(sym.volume), fg(TEXT)),
+        Span::styled(fmt::commas(sym.volume), fg(th().text)),
         Span::styled("  ORD ", dim()),
-        Span::styled(fmt::commas(sym.orders as u64), fg(TEXT)),
+        Span::styled(fmt::commas(sym.orders as u64), fg(th().text)),
         Span::styled("  LVL ", dim()),
-        Span::styled(format!("{}/{}", sym.bid_levels, sym.ask_levels), fg(TEXT)),
+        Span::styled(format!("{}/{}", sym.bid_levels, sym.ask_levels), fg(th().text)),
     ]);
     while lines.len() + 1 < inner.height as usize {
         lines.push(Line::raw(""));
@@ -309,14 +309,14 @@ pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
         let row = (((hi as f64 - vwap) / (hi - lo) as f64) * (plot.height as f64 - 1.0)).round() as u16;
         for x in (plot.x..plot.x + plot.width).step_by(2) {
             if let Some(c) = buf.cell_mut((x, plot.y + row)) {
-                c.set_symbol("╌").set_fg(AMBER_DIM).set_bg(BG);
+                c.set_symbol("╌").set_fg(th().amber_dim).set_bg(th().bg);
             }
         }
     }
     let lead = plot.width.saturating_sub(bars.len() as u16 * 2);
     for (i, b) in bars.iter().enumerate() {
         let x = plot.x + lead + (i as u16) * 2;
-        let color = if b.close >= b.open { BID } else { ASK };
+        let color = if b.close >= b.open { th().bid } else { th().ask };
         let (top, bot) = (y_of(b.open.max(b.close)), y_of(b.open.min(b.close)));
         let (wt, wb) = (y_of(b.high), y_of(b.low));
         for row in 0..plot.height {
@@ -338,7 +338,7 @@ pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
                 _ => continue,
             };
             if let Some(c) = buf.cell_mut((x, plot.y + row)) {
-                c.set_symbol(sym_ch).set_fg(color).set_bg(BG);
+                c.set_symbol(sym_ch).set_fg(color).set_bg(th().bg);
             }
         }
     }
@@ -356,7 +356,7 @@ pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
 
 pub fn draw_volume(f: &mut Frame, app: &App, area: Rect) {
     let Some(sym) = app.current_symbol() else { return };
-    let block = Block::default().borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM).border_style(fg(BORDER));
+    let block = Block::default().borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM).border_style(fg(th().border));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.height == 0 || inner.width < 12 {
@@ -374,7 +374,7 @@ pub fn draw_volume(f: &mut Frame, app: &App, area: Rect) {
         data.push(b.volume);
         data.push(0);
     }
-    f.render_widget(Sparkline::default().data(&data).style(fg(AMBER_DIM)), plot);
+    f.render_widget(Sparkline::default().data(&data).style(fg(th().amber_dim)), plot);
     let label = Rect { x: plot.x + plot.width, y: inner.y, width: 8, height: 1 };
     f.render_widget(Paragraph::new(Span::styled(pad_left("VOL", 8), dimmer())), label);
 }
@@ -408,37 +408,37 @@ pub fn event_cols(width: u16) -> Vec<(&'static str, u16, bool)> {
 pub fn event_line(e: &EventRecord, cols: &[(&str, u16, bool)], ticker: &str, selected: bool, width: u16) -> Line<'static> {
     if e.is_gap() {
         let text = format!(" — GAP — expected {} got {} ({} lost) ", fmt::commas(e.seq), fmt::commas(e.packet_seq), fmt::commas(e.qty as u64));
-        return Line::from(Span::styled(pad_right(&text, width as usize), fg(RED).bg(RED_BG)));
+        return Line::from(Span::styled(pad_right(&text, width as usize), fg(th().red).bg(th().red_bg)));
     }
-    let bg = if selected { SELECT_BG } else { BG };
+    let bg = if selected { th().select_bg } else { th().bg };
     let st = |c: Color| Style::default().fg(c).bg(bg);
     let lat = if e.recv_ns > e.ts_ns && e.recv_ns != 0 { (e.recv_ns - e.ts_ns) / 1000 } else { 0 };
     let mut spans = Vec::with_capacity(cols.len() * 2);
     for (name, w, right) in cols {
         let (text, color) = match *name {
-            "SEQ" => (fmt::commas(e.seq), DIM),
-            "TIME" => (fmt::time_ns(e.ts_ns), TEXT),
+            "SEQ" => (fmt::commas(e.seq), th().dim),
+            "TIME" => (fmt::time_ns(e.ts_ns), th().text),
             "TY" => ((e.ty as char).to_string(), type_color(e.ty)),
-            "SYM" => (if ticker.is_empty() { format!("#{}", e.symbol_id) } else { ticker.to_string() }, TEXT),
-            "ORDER ID" => (if e.order_id == 0 { String::new() } else { fmt::hex_id(e.order_id) }, Color::Rgb(189, 189, 189)),
-            "OID" => (if e.order_id == 0 { String::new() } else { fmt::short_id(e.order_id) }, Color::Rgb(189, 189, 189)),
+            "SYM" => (if ticker.is_empty() { format!("#{}", e.symbol_id) } else { ticker.to_string() }, th().text),
+            "ORDER ID" => (if e.order_id == 0 { String::new() } else { fmt::hex_id(e.order_id) }, th().muted),
+            "OID" => (if e.order_id == 0 { String::new() } else { fmt::short_id(e.order_id) }, th().muted),
             "SD" => ((if e.side == b'B' || e.side == b'S' { e.side as char } else { ' ' }).to_string(), side_color(e.side)),
-            "PX" => (if e.price == 0 { String::new() } else { fmt::commas(e.price) }, TEXT),
-            "QTY" => (if e.qty == 0 { String::new() } else { fmt::commas(e.qty as u64) }, TEXT),
-            "LEFT" => (if matches!(e.ty, b'E' | b'X' | b'D') { fmt::commas(e.remaining as u64) } else { String::new() }, DIM),
-            "MATCH" => (if e.match_id == 0 { String::new() } else { fmt::short_id(e.match_id) }, DIM),
-            "BSEQ" => (if e.book_seq == 0 { String::new() } else { fmt::short_id(e.book_seq) }, DIM),
-            "LAT" => (if lat == 0 { String::new() } else { fmt::commas(lat) }, if lat > 500 { RED } else { DIM }),
-            _ => (String::new(), DIM),
+            "PX" => (if e.price == 0 { String::new() } else { fmt::commas(e.price) }, th().text),
+            "QTY" => (if e.qty == 0 { String::new() } else { fmt::commas(e.qty as u64) }, th().text),
+            "LEFT" => (if matches!(e.ty, b'E' | b'X' | b'D') { fmt::commas(e.remaining as u64) } else { String::new() }, th().dim),
+            "MATCH" => (if e.match_id == 0 { String::new() } else { fmt::short_id(e.match_id) }, th().dim),
+            "BSEQ" => (if e.book_seq == 0 { String::new() } else { fmt::short_id(e.book_seq) }, th().dim),
+            "LAT" => (if lat == 0 { String::new() } else { fmt::commas(lat) }, if lat > 500 { th().red } else { th().dim }),
+            _ => (String::new(), th().dim),
         };
         let cell = if *right { pad_left(&text, *w as usize) } else { pad_right(&text, *w as usize) };
         let style = if *name == "TY" { st(color).add_modifier(ratatui::style::Modifier::BOLD) } else { st(color) };
         spans.push(Span::styled(cell, style));
-        spans.push(Span::styled(" ", st(TEXT)));
+        spans.push(Span::styled(" ", st(th().text)));
     }
     let used: u16 = cols.iter().map(|c| c.1 + 1).sum();
     if width > used {
-        spans.push(Span::styled(" ".repeat((width - used) as usize), st(TEXT)));
+        spans.push(Span::styled(" ".repeat((width - used) as usize), st(th().text)));
     }
     Line::from(spans)
 }
@@ -476,7 +476,7 @@ pub fn draw_tape(f: &mut Frame, app: &App, area: Rect) {
     let rows = inner.height as usize;
     let mut lines = Vec::with_capacity(rows);
     for t in sym.tape.iter().rev().take(rows) {
-        let c = if t.aggressor_buy { BID } else { ASK };
+        let c = if t.aggressor_buy { th().bid } else { th().ask };
         lines.push(Line::from(vec![
             Span::styled(fmt::time_ms(t.ts_ns), dim()),
             Span::raw(" "),
@@ -484,7 +484,7 @@ pub fn draw_tape(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" "),
             Span::styled(pad_left(&fmt::commas(t.price), 8), fg(c)),
             Span::raw(" "),
-            Span::styled(pad_left(&fmt::commas(t.qty as u64), 7), fg(TEXT)),
+            Span::styled(pad_left(&fmt::commas(t.qty as u64), 7), fg(th().text)),
             Span::raw("  "),
             Span::styled(if t.aggressor_buy { "BUY ▲" } else { "SELL ▼" }, fg(c)),
         ]));
@@ -505,48 +505,48 @@ pub fn draw_health(f: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(pad_right(label, 8), dim()),
             Span::styled(fmt::spark(data, sparkw), fg(color)),
-            Span::styled(pad_left(&value, 12), fg(TEXT)),
+            Span::styled(pad_left(&value, 12), fg(th().text)),
         ])
     };
     let total: u64 = s.stats.by_type.iter().sum::<u64>().max(1);
     let mix = |i: usize| (s.stats.by_type[i] as f64 / total as f64 * 100.0).round() as u64;
     let mixw = w.saturating_sub(8);
     let mut mixbar: Vec<Span> = vec![Span::styled(pad_right("mix", 8), dim())];
-    for (i, c) in [(2, BID_BAR), (3, ASK_BAR), (5, Color::Rgb(74, 74, 74)), (4, Color::Rgb(107, 90, 42)), (6, Color::Rgb(90, 58, 122))] {
+    for (i, c) in [(2, th().bid_bar), (3, th().ask_bar), (5, th().mix_d), (4, th().mix_x), (6, th().mix_u)] {
         let n = ((s.stats.by_type[i] as f64 / total as f64) * mixw as f64).round() as usize;
         mixbar.push(Span::styled(" ".repeat(n), Style::default().bg(c)));
     }
     let lines = vec![
-        row("msgs/s", &s.rate_hist, BID, fmt::commas(s.msgs_per_sec)),
-        row("lat p99", &s.p99_hist, AMBER, fmt::micros(s.latency_p99_ns)),
-        row("frame", &frame_hist, GREEN, format!("{} ms", fp99 as f64 / 1000.0)),
+        row("msgs/s", &s.rate_hist, th().bid, fmt::commas(s.msgs_per_sec)),
+        row("lat p99", &s.p99_hist, th().amber, fmt::micros(s.latency_p99_ns)),
+        row("frame", &frame_hist, th().green, format!("{} ms", fp99 as f64 / 1000.0)),
         Line::from(mixbar),
         Line::from(vec![
             Span::styled(pad_right("", 8), dim()),
-            Span::styled(format!("A {}%", mix(2)), fg(BID)), Span::styled(" · ", dim()),
-            Span::styled(format!("E {}%", mix(3)), fg(ASK)), Span::styled(" · ", dim()),
-            Span::styled(format!("D {}%", mix(5)), fg(Color::Rgb(189, 189, 189))), Span::styled(" · ", dim()),
-            Span::styled(format!("X {}%", mix(4)), fg(AMBER_TEXT)), Span::styled(" · ", dim()),
-            Span::styled(format!("U {}%", mix(6)), fg(PURPLE)),
+            Span::styled(format!("A {}%", mix(2)), fg(th().bid)), Span::styled(" · ", dim()),
+            Span::styled(format!("E {}%", mix(3)), fg(th().ask)), Span::styled(" · ", dim()),
+            Span::styled(format!("D {}%", mix(5)), fg(th().muted)), Span::styled(" · ", dim()),
+            Span::styled(format!("X {}%", mix(4)), fg(th().amber_text)), Span::styled(" · ", dim()),
+            Span::styled(format!("U {}%", mix(6)), fg(th().purple)),
         ]),
         Line::from(vec![
-            Span::styled("ring ", dim()), Span::styled(format!("{:.0}%", s.ring_occupancy * 100.0), fg(TEXT)),
-            Span::styled("   drops ", dim()), Span::styled(fmt::commas(s.ring_drops), fg(if s.ring_drops > 0 { RED } else { GREEN })),
-            Span::styled("   gaps ", dim()), Span::styled(s.stats.gaps.to_string(), fg(if s.stats.gaps > 0 { RED } else { GREEN })),
+            Span::styled("ring ", dim()), Span::styled(format!("{:.0}%", s.ring_occupancy * 100.0), fg(th().text)),
+            Span::styled("   drops ", dim()), Span::styled(fmt::commas(s.ring_drops), fg(if s.ring_drops > 0 { th().red } else { th().green })),
+            Span::styled("   gaps ", dim()), Span::styled(s.stats.gaps.to_string(), fg(if s.stats.gaps > 0 { th().red } else { th().green })),
             Span::styled(format!(" ({} lost)", fmt::commas(s.stats.lost_messages)), dimmer()),
-            Span::styled("   dups ", dim()), Span::styled(fmt::commas(s.stats.duplicates), fg(TEXT)),
+            Span::styled("   dups ", dim()), Span::styled(fmt::commas(s.stats.duplicates), fg(th().text)),
         ]),
         Line::from(vec![
-            Span::styled("pkts ", dim()), Span::styled(fmt::commas(s.stats.packets), fg(TEXT)),
-            Span::styled("   msgs ", dim()), Span::styled(fmt::commas(s.stats.messages), fg(TEXT)),
-            Span::styled("   hb ", dim()), Span::styled(fmt::commas(s.stats.heartbeats), fg(TEXT)),
-            Span::styled("   lat p50 ", dim()), Span::styled(fmt::micros(s.latency_p50_ns), fg(TEXT)),
+            Span::styled("pkts ", dim()), Span::styled(fmt::commas(s.stats.packets), fg(th().text)),
+            Span::styled("   msgs ", dim()), Span::styled(fmt::commas(s.stats.messages), fg(th().text)),
+            Span::styled("   hb ", dim()), Span::styled(fmt::commas(s.stats.heartbeats), fg(th().text)),
+            Span::styled("   lat p50 ", dim()), Span::styled(fmt::micros(s.latency_p50_ns), fg(th().text)),
         ]),
         Line::from(vec![
-            Span::styled("frame p50 ", dim()), Span::styled(format!("{:.1} ms", fp50 as f64 / 1000.0), fg(TEXT)),
-            Span::styled("   p99 ", dim()), Span::styled(format!("{:.1} ms", fp99 as f64 / 1000.0), fg(TEXT)),
-            Span::styled("   uptime ", dim()), Span::styled(format!("{}s", app.started.elapsed().as_secs()), fg(TEXT)),
-            Span::styled(if s.stale { "   STALE" } else { "" }, bold(RED)),
+            Span::styled("frame p50 ", dim()), Span::styled(format!("{:.1} ms", fp50 as f64 / 1000.0), fg(th().text)),
+            Span::styled("   p99 ", dim()), Span::styled(format!("{:.1} ms", fp99 as f64 / 1000.0), fg(th().text)),
+            Span::styled("   uptime ", dim()), Span::styled(format!("{}s", app.started.elapsed().as_secs()), fg(th().text)),
+            Span::styled(if s.stale { "   STALE" } else { "" }, bold(th().red)),
         ]),
     ];
     f.render_widget(Paragraph::new(lines), inner);
@@ -617,7 +617,7 @@ pub fn draw_inspector_panel(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(if e.ty == b'E' && e.remaining == 0 { " · order left the book" } else { "" }, dim()),
         ]));
     } else if !e.applied.known && matches!(e.ty, b'E' | b'X' | b'D') {
-        lines.push(Line::from(Span::styled("order unknown to this client (joined after its Add)", fg(AMBER_TEXT))));
+        lines.push(Line::from(Span::styled("order unknown to this client (joined after its Add)", fg(th().amber_text))));
     }
     f.render_widget(Paragraph::new(lines), inner);
 }

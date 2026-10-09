@@ -28,19 +28,17 @@ fn u64_at(b: &[u8], o: usize) -> u64 {
     u64::from_le_bytes(a)
 }
 
-const C_TYPE: Color = theme::ASK;
-const C_SIDE: Color = theme::AMBER_TEXT;
-const C_SYM: Color = theme::TEXT;
-const C_OID: Color = Color::Rgb(189, 189, 189);
-const C_PX: Color = theme::BID;
-const C_QTY: Color = theme::GREEN;
-const C_REM: Color = Color::Rgb(127, 196, 127);
-const C_MATCH: Color = theme::PURPLE;
-const C_BSEQ: Color = theme::DIM;
-const C_TS: Color = theme::DIMMER;
+struct Palette { ty: Color, side: Color, sym: Color, oid: Color, px: Color, qty: Color, rem: Color, mat: Color, bseq: Color, ts: Color }
+fn palette() -> Palette {
+    let th = theme::th();
+    Palette { ty: th.ask, side: th.amber_text, sym: th.text, oid: th.muted, px: th.bid, qty: th.green, rem: th.green, mat: th.purple, bseq: th.dim, ts: th.dimmer }
+}
 
+#[allow(non_snake_case)]
 pub fn fields(e: &EventRecord, ticker: &str) -> Vec<Field> {
     let b = e.raw_bytes();
+    let p = palette();
+    let (C_TYPE, C_SIDE, C_SYM, C_OID, C_PX, C_QTY, C_REM, C_MATCH, C_BSEQ, C_TS) = (p.ty, p.side, p.sym, p.oid, p.px, p.qty, p.rem, p.mat, p.bseq, p.ts);
     let mut v = Vec::new();
     let mut f = |off: usize, len: usize, name: &'static str, ty: &'static str, value: String, note: String, color: Color| {
         if off + len <= b.len() {
@@ -132,7 +130,7 @@ pub fn fields(e: &EventRecord, ticker: &str) -> Vec<Field> {
 
 /// Colour of each raw byte, from the field table.
 pub fn byte_colors(fields: &[Field], len: usize) -> Vec<Color> {
-    let mut v = vec![theme::DIMMER; len];
+    let mut v = vec![theme::th().dimmer; len];
     for f in fields {
         for i in f.off..(f.off + f.len).min(len) {
             v[i] = f.color;

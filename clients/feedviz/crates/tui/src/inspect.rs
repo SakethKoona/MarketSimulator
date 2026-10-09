@@ -30,31 +30,31 @@ pub fn draw(f: &mut Frame, app: &App) {
     let [hdr, body, foot] = Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).areas(area);
 
     // Header.
-    let kv = |k: &str, v: String| vec![Span::styled(format!("  {k} "), Style::default().fg(AMBER_DIM).bg(HDR_BG)), Span::styled(v, Style::default().fg(AMBER_TEXT).bg(HDR_BG))];
-    let mut spans = vec![Span::styled(" FEEDVIZ ", bold(AMBER_BRIGHT).bg(HDR_BG))];
+    let kv = |k: &str, v: String| vec![Span::styled(format!("  {k} "), Style::default().fg(th().amber_dim).bg(th().hdr_bg)), Span::styled(v, Style::default().fg(th().amber_text).bg(th().hdr_bg))];
+    let mut spans = vec![Span::styled(" FEEDVIZ ", bold(th().amber_bright).bg(th().hdr_bg))];
     spans.extend(kv("INSPECT", format!("seq {} · ", fmt::commas(e.seq))));
-    spans.push(Span::styled(format!("{} {}", e.ty as char, fmt::type_name(e.ty)), bold(type_color(e.ty)).bg(HDR_BG)));
-    spans.push(Span::styled(format!(" · {}", if ticker.is_empty() { format!("#{}", e.symbol_id) } else { ticker.clone() }), Style::default().fg(AMBER_TEXT).bg(HDR_BG)));
+    spans.push(Span::styled(format!("{} {}", e.ty as char, fmt::type_name(e.ty)), bold(type_color(e.ty)).bg(th().hdr_bg)));
+    spans.push(Span::styled(format!(" · {}", if ticker.is_empty() { format!("#{}", e.symbol_id) } else { ticker.clone() }), Style::default().fg(th().amber_text).bg(th().hdr_bg)));
     spans.extend(kv("PACKET", format!("seq {} · {} msgs · block {}", fmt::commas(e.packet_seq), e.packet_count, e.block)));
     let right = vec![
-        Span::styled(format!("{}  ", fmt::time_ms(e.ts_ns)), Style::default().fg(AMBER_TEXT).bg(HDR_BG)),
-        Span::styled(" ❚❚ PAUSED ", bold(PAUSE_FG).bg(PAUSE_BG)),
-        Span::styled(" ", Style::default().bg(HDR_BG)),
+        Span::styled(format!("{}  ", fmt::time_ms(e.ts_ns)), Style::default().fg(th().amber_text).bg(th().hdr_bg)),
+        Span::styled(" ❚❚ PAUSED ", bold(th().pause_fg).bg(th().pause_bg)),
+        Span::styled(" ", Style::default().bg(th().hdr_bg)),
     ];
     let l: usize = spans.iter().map(|x| x.content.chars().count()).sum();
     let r: usize = right.iter().map(|x| x.content.chars().count()).sum();
-    spans.push(Span::styled(" ".repeat((hdr.width as usize).saturating_sub(l + r)), Style::default().bg(HDR_BG)));
+    spans.push(Span::styled(" ".repeat((hdr.width as usize).saturating_sub(l + r)), Style::default().bg(th().hdr_bg)));
     spans.extend(right);
-    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(HDR_BG)), hdr);
+    f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(th().hdr_bg)), hdr);
 
     // Footer.
     let keys = [("Esc", "back"), ("↑↓", "prev/next event"), ("n p", "next/prev for this order"), ("K", "first in packet")];
-    let mut fs = vec![Span::styled(" ", Style::default().bg(PANEL_HDR_BG))];
+    let mut fs = vec![Span::styled(" ", Style::default().bg(th().panel_hdr_bg))];
     for (k, v) in keys {
-        fs.push(Span::styled(k, bold(AMBER).bg(PANEL_HDR_BG)));
-        fs.push(Span::styled(format!(" {v}   "), Style::default().fg(DIM).bg(PANEL_HDR_BG)));
+        fs.push(Span::styled(k, bold(th().amber).bg(th().panel_hdr_bg)));
+        fs.push(Span::styled(format!(" {v}   "), Style::default().fg(th().dim).bg(th().panel_hdr_bg)));
     }
-    f.render_widget(Paragraph::new(Line::from(fs)).style(Style::default().bg(PANEL_HDR_BG)), foot);
+    f.render_widget(Paragraph::new(Line::from(fs)).style(Style::default().bg(th().panel_hdr_bg)), foot);
 
     let left_w = 64u16.min(body.width * 2 / 5);
     let right_w = 54u16.min(body.width / 4);
@@ -72,7 +72,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Span::styled(pad_right(&fl.len.to_string(), 3), dimmer()), Span::raw(" "),
             Span::styled(pad_right(fl.name, 14), bold(fl.color)), Span::raw(" "),
             Span::styled(pad_right(fl.ty, 5), dimmer()), Span::raw(" "),
-            Span::styled(fl.value.clone(), fg(TEXT_BRIGHT)),
+            Span::styled(fl.value.clone(), fg(th().text_bright)),
         ]));
         if !fl.note.is_empty() {
             lines.push(Line::from(vec![Span::raw("      "), Span::styled(fl.note.clone(), dim())]));
@@ -94,13 +94,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_packet(f, app, &e, pkt);
     draw_timing(f, &e, timing);
     let inner = panel(f, spec, "SPEC", "feed-v1.md");
-    f.render_widget(Paragraph::new(decode::spec_text(e.ty)).style(fg(Color_TEXT())).wrap(Wrap { trim: true }), inner);
+    f.render_widget(Paragraph::new(decode::spec_text(e.ty)).style(fg(th().muted)).wrap(Wrap { trim: true }), inner);
 }
 
-#[allow(non_snake_case)]
-fn Color_TEXT() -> ratatui::style::Color {
-    Color::Rgb(189, 189, 189)
-}
 use ratatui::style::Color;
 
 fn draw_lifecycle(f: &mut Frame, app: &App, e: &EventRecord, ticker: &str, area: Rect) {
@@ -124,7 +120,7 @@ fn draw_lifecycle(f: &mut Frame, app: &App, e: &EventRecord, ticker: &str, area:
             _ => format!(" {} ", x.ty as char),
         };
         let here = x.seq == e.seq;
-        let st = if here { bold(AMBER_BRIGHT).bg(SELECT_BG) } else { fg(type_color(x.ty)).bg(Color::Rgb(16, 16, 16)) };
+        let st = if here { bold(th().amber_bright).bg(th().select_bg) } else { fg(type_color(x.ty)).bg(th().panel_alt) };
         chain.push(Span::styled(label, st));
         if i + 1 < same.len() {
             chain.push(Span::styled(" → ", dimmer()));
@@ -167,13 +163,13 @@ fn draw_impact(f: &mut Frame, e: &EventRecord, ticker: &str, area: Rect) {
             Span::styled(pad_right("before", 9), dim()),
             Span::styled(pad_right(&fmt::commas(b.0), 10), fg(c)),
             Span::styled(pad_right(&b.1.to_string(), 4), dim()),
-            Span::styled(bar(b.0), Style::default().bg(if e.side == b'B' { BID_BAR } else { ASK_BAR })),
+            Span::styled(bar(b.0), Style::default().bg(if e.side == b'B' { th().bid_bar } else { th().ask_bar })),
         ]),
         Line::from(vec![
             Span::styled(pad_right("after", 9), dim()),
             Span::styled(pad_right(&fmt::commas(a.0), 10), fg(c)),
             Span::styled(pad_right(&a.1.to_string(), 4), dim()),
-            Span::styled(bar(a.0), Style::default().bg(if e.side == b'B' { BID_BAR } else { ASK_BAR })),
+            Span::styled(bar(a.0), Style::default().bg(if e.side == b'B' { th().bid_bar } else { th().ask_bar })),
         ]),
         Line::raw(""),
         Line::from(Span::styled(
@@ -202,11 +198,11 @@ fn draw_match(f: &mut Frame, app: &App, e: &EventRecord, area: Rect) {
     let mut lines = vec![
         Line::from(vec![
             Span::styled(format!("RESTING · {} · this order  ", fmt::side_name(e.side)), bold(side_color(e.side))),
-            Span::styled(fmt::hex_id(e.order_id), fg(Color::Rgb(189, 189, 189))),
+            Span::styled(fmt::hex_id(e.order_id), fg(th().muted)),
         ]),
         Line::from(vec![
-            Span::styled("filled ", dim()), Span::styled(format!("{} @ {}", fmt::commas(e.qty as u64), fmt::commas(e.price)), fg(TEXT)),
-            Span::styled("   leaves ", dim()), Span::styled(fmt::commas(e.remaining as u64), fg(TEXT)),
+            Span::styled("filled ", dim()), Span::styled(format!("{} @ {}", fmt::commas(e.qty as u64), fmt::commas(e.price)), fg(th().text)),
+            Span::styled("   leaves ", dim()), Span::styled(fmt::commas(e.remaining as u64), fg(th().text)),
         ]),
         Line::raw(""),
         Line::from(vec![
@@ -241,18 +237,18 @@ fn draw_packet(f: &mut Frame, app: &App, e: &EventRecord, area: Rect) {
             _ => String::new(),
         };
         let here = x.seq == e.seq;
-        let bg = if here { SELECT_BG } else { BG };
+        let bg = if here { th().select_bg } else { th().bg };
         lines.push(Line::from(vec![
             Span::styled(pad_right(&x.block.to_string(), 3), dimmer().bg(bg)), Span::styled(" ", Style::default().bg(bg)),
             Span::styled(pad_right(&fmt::commas(x.seq), 8), dim().bg(bg)), Span::styled(" ", Style::default().bg(bg)),
             Span::styled(format!("{} ", x.ty as char), bold(type_color(x.ty)).bg(bg)),
-            Span::styled(pad_right(&sum, (inner.width as usize).saturating_sub(16)), fg(Color::Rgb(189, 189, 189)).bg(bg)),
+            Span::styled(pad_right(&sum, (inner.width as usize).saturating_sub(16)), fg(th().muted).bg(bg)),
         ]));
     }
     lines.push(Line::from(vec![
-        Span::styled("count ", dim()), Span::styled(e.packet_count.to_string(), fg(TEXT)),
-        Span::styled("  next ", dim()), Span::styled(fmt::commas(e.packet_seq + e.packet_count as u64), fg(TEXT)),
-        Span::styled("  in window ", dim()), Span::styled(blocks.len().to_string(), fg(TEXT)),
+        Span::styled("count ", dim()), Span::styled(e.packet_count.to_string(), fg(th().text)),
+        Span::styled("  next ", dim()), Span::styled(fmt::commas(e.packet_seq + e.packet_count as u64), fg(th().text)),
+        Span::styled("  in window ", dim()), Span::styled(blocks.len().to_string(), fg(th().text)),
     ]));
     f.render_widget(Paragraph::new(lines), inner);
 }
@@ -279,17 +275,17 @@ fn draw_timing(f: &mut Frame, e: &EventRecord, area: Rect) {
     };
     let lines = if recv == 0 {
         vec![
-            Line::from(Span::styled("engine ts_ns  ", dim())).patch_style(fg(TEXT)),
-            Line::from(Span::styled(fmt::time_ns(e.ts_ns), fg(TEXT))),
+            Line::from(Span::styled("engine ts_ns  ", dim())).patch_style(fg(th().text)),
+            Line::from(Span::styled(fmt::time_ns(e.ts_ns), fg(th().text))),
             Line::from(Span::styled("no receive timestamp (replay)", dim())),
         ]
     } else {
         vec![
-            row("engine ts_ns", 0, 0, DIM, "0".into()),
-            row("socket recv", 0, recv, AMBER, format!("+{}", fmt::micros(recv))),
+            row("engine ts_ns", 0, 0, th().dim, "0".into()),
+            row("socket recv", 0, recv, th().amber, format!("+{}", fmt::micros(recv))),
             Line::raw(""),
-            Line::from(vec![Span::styled("engine ", dim()), Span::styled(fmt::time_ns(e.ts_ns), fg(TEXT))]),
-            Line::from(vec![Span::styled("recv   ", dim()), Span::styled(fmt::time_ns(e.recv_ns), fg(TEXT))]),
+            Line::from(vec![Span::styled("engine ", dim()), Span::styled(fmt::time_ns(e.ts_ns), fg(th().text))]),
+            Line::from(vec![Span::styled("recv   ", dim()), Span::styled(fmt::time_ns(e.recv_ns), fg(th().text))]),
             Line::from(Span::styled("book apply and frame times are in FEED HEALTH", dimmer())),
         ]
     };
