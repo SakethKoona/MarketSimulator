@@ -83,16 +83,15 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// Builds a snapshot of `session` with `depth` levels per side. Drains
-    /// the session's latency samples so each snapshot reports its own
-    /// interval.
-    pub fn build(session: &mut Session, depth: usize, revision: u64) -> Snapshot {
+    /// Builds a snapshot of `session` with `depth` levels per side. The
+    /// latency percentiles are supplied by the caller, which keeps a
+    /// one-second window of samples.
+    pub fn build(session: &mut Session, depth: usize, revision: u64, latency: (u64, u64)) -> Snapshot {
         let mut symbols: Vec<SymbolSnapshot> =
             session.books.values().map(|b| book_snapshot(b, depth)).collect();
         symbols.sort_by_key(|s| s.symbol_id);
 
-        let (p50, p99) = percentiles(&mut session.stats.latency_ns);
-        session.stats.latency_ns.clear();
+        let (p50, p99) = latency;
         let mut stats = session.stats.clone();
         stats.latency_ns = Vec::new();
 
@@ -163,7 +162,7 @@ fn book_snapshot(b: &Book, depth: usize) -> SymbolSnapshot {
     }
 }
 
-fn percentiles(samples: &mut [u64]) -> (u64, u64) {
+pub fn percentiles(samples: &mut [u64]) -> (u64, u64) {
     if samples.is_empty() {
         return (0, 0);
     }

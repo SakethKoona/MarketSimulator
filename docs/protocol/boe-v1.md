@@ -125,7 +125,8 @@ IOC that fully fills still gets an Acknowledgment with `leaves_qty = 0`.
 | 29     | 60   | char[60] | text      |
 
 `reason`: `'S'` unknown symbol, `'Q'` bad quantity, `'P'` bad price,
-`'K'` fill-or-kill could not fill, `'D'` duplicate cl_ord_id, `'U'` unknown
+`'K'` fill-or-kill could not fill, `'L'` no liquidity (an IOC or market
+order that executed nothing), `'D'` duplicate cl_ord_id, `'U'` unknown
 order (for cancel/modify), `'X'` session not logged in, `'O'` other.
 
 **OrderModified, `0x27`, body 52 bytes**

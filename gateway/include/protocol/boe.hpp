@@ -38,8 +38,9 @@ constexpr std::uint8_t Accepted = 'A', NotAuthorised = 'N', Duplicate = 'D',
 }
 namespace reject_reason {
 constexpr std::uint8_t UnknownSymbol = 'S', BadQty = 'Q', BadPrice = 'P',
-                       FokUnfillable = 'K', DuplicateClOrdId = 'D',
-                       UnknownOrder = 'U', NotLoggedIn = 'X', Other = 'O';
+                       FokUnfillable = 'K', NoLiquidity = 'L',
+                       DuplicateClOrdId = 'D', UnknownOrder = 'U',
+                       NotLoggedIn = 'X', Other = 'O';
 }
 namespace cancel_reason {
 constexpr std::uint8_t User = 'U', IocRemainder = 'I', FokFailed = 'K',

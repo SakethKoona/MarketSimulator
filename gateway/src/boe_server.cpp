@@ -33,6 +33,10 @@ std::uint8_t reject_reason_for(StatusCode s) {
     case StatusCode::InvalidQuantity: return boe::reject_reason::BadQty;
     case StatusCode::InvalidPrice: return boe::reject_reason::BadPrice;
     case StatusCode::FOKFailed: return boe::reject_reason::FokUnfillable;
+    // A rejected new order with a Success status is an IOC/market order
+    // that found nothing to execute against.
+    case StatusCode::Success: return boe::reject_reason::NoLiquidity;
+    case StatusCode::NotEnoughLiquidity: return boe::reject_reason::NoLiquidity;
     case StatusCode::DuplicateOrder: return boe::reject_reason::DuplicateClOrdId;
     case StatusCode::OrderNotFound: return boe::reject_reason::UnknownOrder;
     default: return boe::reject_reason::Other;
@@ -47,7 +51,8 @@ const char *reject_text_for(StatusCode s) {
     case StatusCode::FOKFailed: return "fill-or-kill could not be filled";
     case StatusCode::DuplicateOrder: return "duplicate order";
     case StatusCode::OrderNotFound: return "unknown order";
-    case StatusCode::NotEnoughLiquidity: return "not enough liquidity";
+    case StatusCode::NotEnoughLiquidity: return "no liquidity";
+    case StatusCode::Success: return "no liquidity";
     default: return "rejected";
     }
 }

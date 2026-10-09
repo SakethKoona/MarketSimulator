@@ -113,7 +113,8 @@ impl FeedClient {
                         let mut rate = 0u64;
                         let mut rate_hist: std::collections::VecDeque<u64> = std::collections::VecDeque::new();
                         let mut p99_hist: std::collections::VecDeque<u64> = std::collections::VecDeque::new();
-                        let mut p99_this_sec = 0u64;
+                        let mut lat_window: Vec<u64> = Vec::new(); // this second's samples
+                        let mut lat_pct = (0u64, 0u64);             // last full second
                         loop {
                             let mut worked = false;
                             for _ in 0..256 {
@@ -126,21 +127,28 @@ impl FeedClient {
                                 }
                             }
                             let now = Instant::now();
+                            // Move this tick's latency samples into the one-second window.
+                            if !session.stats.latency_ns.is_empty() {
+                                lat_window.append(&mut session.stats.latency_ns);
+                                if lat_window.len() > 200_000 {
+                                    lat_window.drain(..lat_window.len() - 200_000);
+                                }
+                            }
                             if now - last_rate >= Duration::from_secs(1) {
                                 rate = session.stats.messages - msgs_at_rate;
                                 msgs_at_rate = session.stats.messages;
                                 last_rate = now;
                                 if rate_hist.len() == 120 { rate_hist.pop_front(); }
                                 rate_hist.push_back(rate);
+                                lat_pct = crate::snapshot::percentiles(&mut lat_window);
+                                lat_window.clear();
                                 if p99_hist.len() == 120 { p99_hist.pop_front(); }
-                                p99_hist.push_back(p99_this_sec);
-                                p99_this_sec = 0;
+                                p99_hist.push_back(lat_pct.1);
                             }
                             let src_done = source_done.load(Ordering::Acquire) && rx.is_empty();
                             if now - last_snap >= interval || src_done {
                                 revision += 1;
-                                let mut s = Snapshot::build(&mut session, depth, revision);
-                                p99_this_sec = p99_this_sec.max(s.latency_p99_ns);
+                                let mut s = Snapshot::build(&mut session, depth, revision, lat_pct);
                                 s.rate_hist = rate_hist.iter().copied().collect();
                                 s.p99_hist = p99_hist.iter().copied().collect();
                                 s.msgs_per_sec = rate;

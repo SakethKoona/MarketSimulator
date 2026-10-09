@@ -18,17 +18,37 @@ needed. Requires the nlohmann JSON headers in `../limit_order_book/third_party`.
 
 ```
 # from the repo root
-./gateway/build/exchange_server configs/default.json --rate 2000
-./gateway/build/feed_dump                       # another terminal
+./gateway/build/exchange_server configs/default.json          # engine + feed + BOE, no flow
+./gateway/build/flowgen --sessions 4 --rate 20000              # order flow over BOE/TCP
+./gateway/build/feed_dump                                      # watch the feed
 ```
 
-`exchange_server` runs the engine with a synthetic order generator, the feed
-publisher and the BOE gateway. Flags: `--rate N` orders per second (0 = no
-synthetic flow), `--seconds S` to stop automatically, `--quiet` to suppress
-the one-line-per-second stats, `--capture FILE` to append every sent packet
-to FILE (u32 little-endian length + raw MoldUDP64 packet) and, at shutdown,
-write `FILE.books.txt` with the final levels (`symbol_id side price qty
-count`). Captures are the replay and golden-test input for `clients/feedviz`.
+`exchange_server` runs the engine, the feed publisher and the BOE gateway.
+Order flow comes in over BOE; `flowgen` is the external generator. Flags:
+`--rate N` turns on the old in-process synthetic generator (default 0),
+`--seconds S` stops automatically, `--quiet` suppresses the per-second
+stats, `--capture FILE` appends every sent packet to FILE (u32 little-endian
+length + raw MoldUDP64 packet) and, at shutdown, writes `FILE.books.txt`
+with the final levels (`symbol_id side price qty count`). Captures are the
+replay and golden-test input for `clients/feedviz`.
+
+`flowgen` opens N BOE sessions, each on its own thread, and drives the
+order mix (55% passive limits around a random-walk mid anchored to its own
+fills, 25% cancels, 10% quantity reductions, 10% crossing IOCs) at an
+aggregate `--rate`, tracking every order through acknowledgments,
+executions, modifies and cancels. Flags: `--host`, `--port`, `--sessions`,
+`--rate`, `--seconds`, `--symbols AAPL,GOOG,NVDA`, `--seed`, `--quiet`. It
+prints one line per second: sent, acked, rejected, busy (gateway ring
+full), executions, cancels, modifies, live orders, and ack round-trip
+latency p50/p99/max. Measured on one laptop over loopback with 3 shards:
+
+| sessions | rate | rtt p50 | rtt p99 | feed |
+|---:|---:|---:|---:|---|
+| 4 | 20k/s | 214 µs | 294 µs | 23k msgs/s, 0 gaps |
+| 8 | 60k/s | 169 µs | 1.1 ms | 70k msgs/s, 0 gaps |
+
+The BOE gateway is a single poll thread; beyond this, scale by running one
+gateway thread per group of sessions (not yet done).
 
 `feed_dump [group] [port] [iface]` joins the multicast group and prints every
 decoded message, heartbeats, gaps and duplicate packets.

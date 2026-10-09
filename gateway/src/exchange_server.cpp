@@ -1,6 +1,8 @@
 // exchange_server: runs the matching engine with the feed publisher and a
 // synthetic order-flow generator, until SIGINT.
 // Usage: exchange_server [config.json] [--rate N] [--seconds S] [--quiet] [--capture FILE]
+// --rate N enables the in-process synthetic generator; the default is 0,
+// order flow is expected over BOE (see tools/flowgen.cpp).
 #include "exchange.hpp"
 #include "boe_server.hpp"
 #include "engine_loop.hpp"
@@ -108,7 +110,7 @@ class FlowGenerator {
 
 int main(int argc, char **argv) {
     std::string config_path;
-    double rate = 1000; // orders per second
+    double rate = 0; // in-process synthetic orders per second; 0 = none (use flowgen over BOE)
     double seconds = 0; // 0 = until SIGINT
     bool quiet = false;
     std::string capture;
@@ -147,7 +149,7 @@ int main(int argc, char **argv) {
     std::vector<std::vector<SymbolId>> shard_syms(shards);
     std::vector<std::uint8_t> symbol_shard(ids.empty() ? 0 : ids.back() + 1, 0);
     for (std::size_t i = 0; i < shards; ++i) {
-        commands.push_back(std::make_unique<SpscRing<InboundCommand>>(1 << 14));
+        commands.push_back(std::make_unique<SpscRing<InboundCommand>>(1 << 16));
         reports.push_back(std::make_unique<SpscRing<OrderReport>>(1 << 16));
         cmd_ptrs.push_back(commands.back().get());
         rep_ptrs.push_back(reports.back().get());

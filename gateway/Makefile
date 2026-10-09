@@ -15,7 +15,7 @@ GATEWAY_SRC = src/feed_publisher.cpp src/boe_server.cpp
 GATEWAY_OBJ = $(patsubst src/%.cpp,$(BUILD)/%.o,$(GATEWAY_SRC))
 
 TESTS = $(BUILD)/protocol_test $(BUILD)/spsc_ring_test $(BUILD)/feed_reconstruct_test
-BINS  = $(BUILD)/exchange_server $(BUILD)/feed_dump
+BINS  = $(BUILD)/exchange_server $(BUILD)/feed_dump $(BUILD)/flowgen
 
 all: $(BINS) test
 
@@ -32,6 +32,9 @@ $(BUILD)/exchange_server: src/exchange_server.cpp $(GATEWAY_OBJ) $(ENGINE_OBJ) |
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@
 
 $(BUILD)/feed_dump: tools/feed_dump.cpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
+
+$(BUILD)/flowgen: tools/flowgen.cpp include/protocol/boe.hpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< -o $@
 
 $(BUILD)/feed_reconstruct_test: tests/feed_reconstruct_test.cpp $(ENGINE_OBJ) | $(BUILD)
