@@ -5,7 +5,29 @@
         "NVDA": {}
     },
 
-    "sink_size": 4096,
+    "sink_size": 65536,
+
+    "feed": {
+        "group": "239.1.1.1",
+        "port": 30001,
+        "interface": "",
+        "session": "MKTSIM0001",
+        "flush_us": 100,
+        "heartbeat_ms": 1000,
+        "directory_s": 5,
+        "ttl": 1,
+        "loop": true,
+        "retransmit_capacity": 65536
+    },
+
+    "boe": {
+        "port": 30000,
+        "bind": "0.0.0.0",
+        "heartbeat_ms": 1000,
+        "timeout_ms": 5000,
+        "poll_ms": 1,
+        "max_sessions": 64
+    },
     "seq_capacity": 10,
     "num_symbols": 3
 }

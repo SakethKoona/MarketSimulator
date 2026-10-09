@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <iosfwd>
 #include <variant>
+#include "spsc_ring.hpp"
 
 // What happened to a resting order in the book. Mirrors the ITCH-style
 // message set described in event_architecture.md.
@@ -54,61 +55,42 @@ std::ostream &operator<<(std::ostream &os, const OrderBookEvent &e);
 std::ostream &operator<<(std::ostream &os, const TradeFillEvent &e);
 std::ostream &operator<<(std::ostream &os, const OutBoundEvent &e);
 
-// TODO: Make this lock free
-template <typename T> class RingBuffer {
-  public:
-    RingBuffer(std::size_t buffer_size)
-        : size_(buffer_size), writeOffset_(0), readOffset_(0) {
-
-        // Initialize the buffer, and allocate memory
-        buffer = (T *)malloc(size_ * sizeof(T));
-    }
-
-    // In current design, messages can be
-    // overwritten, which is fast, in the future, we might need
-    // to make that more safe
-
-    // Returns a pointer to the event
-    T *push(const T &msg) {
-        *(buffer + writeOffset_) = msg;
-        T *ptr = (buffer + writeOffset_);
-        writeOffset_ = (writeOffset_ + 1) % size_;
-        return ptr;
-    }
-
-    // Once popped, we return a pointer to the popped object
-    T *pop() {
-        if (writeOffset_ == readOffset_) // Empty buffer
-            return nullptr;
-        T *msgPtr = (buffer + readOffset_);
-        readOffset_ = (readOffset_ + 1) % size_;
-        return msgPtr;
-    }
-
-    // Looks at value without popping and adjusting offsets
-    T *peek() {
-        if (writeOffset_ == readOffset_) {
-            return nullptr;
-        }
-        return (buffer + readOffset_);
-    }
-
-  private:
-    T *buffer;
-    std::size_t size_;
-    std::size_t writeOffset_;
-    std::size_t readOffset_;
-};
-
 class EventSink {
   public:
-    EventSink(std::size_t buffer_size) : buffer_(buffer_size) {}
+    // Capacity is rounded up to a power of two. The engine thread is the
+    // only producer; exactly one consumer (the publisher, or the test
+    // harness via Exchange::NextEvent) may call consume/peek/pop.
+    explicit EventSink(std::size_t buffer_size)
+        : buffer_(round_up_pow2(buffer_size)),
+          fills_(round_up_pow2(buffer_size)) {}
 
+    // Producer. Never blocks: a full ring drops the event and counts it in
+    // dropped(); the publisher turns that into a feed gap.
     void emit(const OutBoundEvent &e) noexcept {
-        buffer_.push(e);
+        buffer_.try_push(e);
         eventCounter_.fetch_add(1, std::memory_order_relaxed);
     }
-    OutBoundEvent *consume() { return buffer_.pop(); }
+
+    // Consumer, copying form. Pops the next event into an internal scratch
+    // slot and returns a pointer to it, or nullptr when empty. The pointer
+    // is valid until the next consume().
+    OutBoundEvent *consume() {
+        return buffer_.try_pop(last_) ? &last_ : nullptr;
+    }
+
+    // Consumer, zero-copy form for the publisher thread: peek() the front
+    // event in place, then pop() it once encoded.
+    OutBoundEvent *peek() noexcept { return buffer_.peek(); }
+    void pop() noexcept { buffer_.pop(); }
+
+    // Private copy of every TradeFillEvent, for the order-entry gateway to
+    // build execution reports without touching the public feed ring. Same
+    // SPSC rules: the engine thread produces, one consumer drains.
+    SpscRing<TradeFillEvent> &fills() noexcept { return fills_; }
+
+    // Events the producer could not enqueue because the ring was full.
+    std::uint64_t dropped() const noexcept { return buffer_.dropped(); }
+    std::size_t capacity() const noexcept { return buffer_.capacity(); }
 
     // One book event per mutation of a resting order
     void emit_book_event(BookAction action, SymbolId symbol_id,
@@ -142,6 +124,15 @@ class EventSink {
     }
 
   private:
+    static std::size_t round_up_pow2(std::size_t n) {
+        std::size_t p = 1;
+        while (p < n)
+            p <<= 1;
+        return p;
+    }
+
     std::atomic<std::uint64_t> eventCounter_{0};
-    RingBuffer<OutBoundEvent> buffer_;
+    SpscRing<OutBoundEvent> buffer_;
+    SpscRing<TradeFillEvent> fills_;
+    OutBoundEvent last_{};
 };

@@ -42,6 +42,11 @@ class Exchange {
     std::optional<SymbolId> ResolveSymbol(const Symbol &symbol) const;
     const std::unordered_map<Symbol, SymbolId> &Symbols() const;
 
+    // The event sink, for a publisher thread that consumes it directly.
+    EventSink &Sink() { return sink_; }
+    // Read-only view of a book, for conformance tests and snapshots.
+    const OrderBook &GetBook(SymbolId sym_id) const { return engine_.GetBook(sym_id); }
+
     // Pops the next published event, or nullptr when the sink is empty
     OutBoundEvent *NextEvent();
     // Pops and prints every pending event

@@ -8,3 +8,4 @@ CLAUDE.md
 limit_order_book/build/
 limit_order_book/bin/
 .DS_Store
+gateway/build/

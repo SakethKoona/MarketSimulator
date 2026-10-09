@@ -32,6 +32,9 @@ class MatchingEngine {
     StatusCode L2Snapshot(SymbolId symId);
     void InitBooks(std::size_t numSymbols);
 
+    // Read-only view of a book, for conformance tests and snapshots.
+    const OrderBook &GetBook(SymbolId symId) const { return *books_vec_.at(symId); }
+
   private:
     // Per-engine sequences. The engine is single-threaded, so plain
     // integers; ids and sequences start at 1 (0 is the "no order" sentinel).

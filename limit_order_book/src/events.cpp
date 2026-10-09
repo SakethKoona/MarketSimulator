@@ -104,5 +104,6 @@ void EventSink::emit_trade_event(SymbolId symbol_id, TradeId trade_id,
         .book_seq = book_seq,
         .ts_ns = get_current_timestamp(),
     };
+    fills_.try_push(std::get<TradeFillEvent>(event));
     this->emit(event);
 }
