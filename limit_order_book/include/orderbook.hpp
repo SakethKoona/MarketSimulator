@@ -154,8 +154,11 @@ class OrderBook {
     const OrderNode *FindOrder(OrderId id) const;
 
   private:
+    // Indexed by seq_of(id): ids carry the shard in their high bits, and a
+    // book only ever sees ids minted by its own shard.
     OrderNode *lookup(OrderId id) const {
-        return id < orderLookup_.size() ? orderLookup_[id] : nullptr;
+        uint64_t seq = seq_of(id);
+        return seq < orderLookup_.size() ? orderLookup_[seq] : nullptr;
     }
     void removeNode(OrderNode *node);
     std::size_t orderCount_ = 0;

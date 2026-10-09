@@ -29,5 +29,6 @@
         "max_sessions": 64
     },
     "seq_capacity": 10,
-    "num_symbols": 3
+    "num_symbols": 3,
+    "shards": 1
 }

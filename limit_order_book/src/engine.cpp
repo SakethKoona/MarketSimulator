@@ -3,7 +3,6 @@
 #include "events.hpp"
 #include "orderbook.hpp"
 #include "results.hpp"
-#include "sequencer.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <stdexcept>
@@ -36,13 +35,23 @@ bool IsPriceMoreAggressive(Price price, Price other, Side side) {
 //     return filename;
 // }
 
-MatchingEngine::MatchingEngine(EventSink &sink, Sequencer &seq)
-    : sink_(sink), sequencer_(seq) {}
+MatchingEngine::MatchingEngine(EventSink &sink, ShardId shard)
+    : shard_(shard), sink_(sink) {}
 
 void MatchingEngine::InitBooks(std::size_t numSymbols) {
-    books_vec_.reserve(numSymbols);
-    for (std::size_t i = 0; i < numSymbols; i++) {
-        books_vec_.emplace_back(std::make_unique<OrderBook>(i));
+    std::vector<SymbolId> all(numSymbols);
+    for (std::size_t i = 0; i < numSymbols; i++)
+        all[i] = i;
+    InitBooks(all, numSymbols);
+}
+
+void MatchingEngine::InitBooks(const std::vector<SymbolId> &symbols,
+                               std::size_t numSymbols) {
+    books_vec_.clear();
+    books_vec_.resize(numSymbols);
+    for (SymbolId s : symbols) {
+        if (s < numSymbols)
+            books_vec_[s] = std::make_unique<OrderBook>(s);
     }
 }
 
@@ -53,7 +62,7 @@ FillResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
                                                BookAction rest_action) {
     // Avoid throwing for a missing symbol; return a rejected FillResult
     // instead.
-    if (symId >= books_vec_.size()) {
+    if (!Serves(symId)) {
         FillResult res(id);
         res.status_code = StatusCode::SymbolNotFound;
         res.fill_status = FillStatus::Rejected;
@@ -79,12 +88,10 @@ FillResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
 FillResult MatchingEngine::SubmitOrder(SymbolId symId, Price price,
                                        Quantity quantity, Side side,
                                        OrderType type, TypeInForce tif) {
-    OrderId id = sequencer_.next(0);
-    return SubmitOrderInternal(symId, id, price, quantity, side, type, tif);
+    return SubmitOrderInternal(symId, nextOrderId(), price, quantity, side,
+                               type, tif);
 }
 
-TradeId MatchingEngine::nextTradeId() { return nextTradeId_++; }
-uint64_t MatchingEngine::nextSeq() { return nextSeq_++; }
 
 bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
     Quantity remaining = incoming.quantity;
@@ -344,14 +351,14 @@ StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
 }
 
 StatusCode MatchingEngine::DisplayBook(SymbolId symId) {
-    if (symId >= books_vec_.size())
+    if (!Serves(symId))
         return StatusCode::SymbolNotFound;
     books_vec_[symId]->Display();
     return StatusCode::Success;
 }
 
 StatusCode MatchingEngine::L2Snapshot(SymbolId symId) {
-    if (symId >= books_vec_.size())
+    if (!Serves(symId))
         return StatusCode::SymbolNotFound;
     books_vec_[symId]->L2Snapshot();
     return StatusCode::Success;

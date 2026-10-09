@@ -4,7 +4,6 @@
 #include "events.hpp"
 #include "orderbook.hpp"
 #include "results.hpp"
-#include "sequencer.hpp"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -42,12 +41,32 @@ class Exchange {
     std::optional<SymbolId> ResolveSymbol(const Symbol &symbol) const;
     const std::unordered_map<Symbol, SymbolId> &Symbols() const;
 
-    // The event sink, for a publisher thread that consumes it directly.
-    EventSink &Sink() { return sink_; }
-    // Read-only view of a book, for conformance tests and snapshots.
-    const OrderBook &GetBook(SymbolId sym_id) const { return engine_.GetBook(sym_id); }
+    // ---- Sharding ----
+    // Symbols are spread over NumShards() engines; symbol s lives on shard
+    // s % NumShards(). Each shard has its own engine and EventSink, and
+    // only one thread may call into a given shard. The routing methods
+    // above (by SymbolId or OrderId) dispatch to the right shard; the
+    // Exchange itself takes no locks.
+    std::size_t NumShards() const { return shards_.size(); }
+    ShardId ShardOf(SymbolId sym_id) const {
+        return static_cast<ShardId>(sym_id % shards_.size());
+    }
+    MatchingEngine &Shard(std::size_t i) { return shards_[i]->engine; }
+    const MatchingEngine &Shard(std::size_t i) const { return shards_[i]->engine; }
 
-    // Pops the next published event, or nullptr when the sink is empty
+    // The event sink of a shard, for a publisher thread that consumes it
+    // directly. Sink() is shard 0, which is the only sink at shards=1.
+    EventSink &Sink(std::size_t shard) { return shards_[shard]->sink; }
+    EventSink &Sink() { return Sink(0); }
+
+    // Read-only view of a book, for conformance tests and snapshots.
+    const OrderBook &GetBook(SymbolId sym_id) const {
+        return shards_[ShardOf(sym_id)]->engine.GetBook(sym_id);
+    }
+
+    // Pops the next published event from any shard (round-robin), or
+    // nullptr when every sink is empty. Single-threaded convenience for
+    // tests and tools; a real publisher consumes Sink(i) per shard.
     OutBoundEvent *NextEvent();
     // Pops and prints every pending event
     void DrainEvents(std::ostream &os);
@@ -55,9 +74,23 @@ class Exchange {
   private:
     static json LoadConfig(const std::string &config_path);
 
+    struct ShardState {
+        EventSink sink;
+        MatchingEngine engine;
+        ShardState(std::size_t sink_size, ShardId id)
+            : sink(sink_size), engine(sink, id) {}
+    };
+
+    MatchingEngine &engine_for_symbol(SymbolId sym_id) {
+        return shards_[ShardOf(sym_id)]->engine;
+    }
+    MatchingEngine *engine_for_order(OrderId id) {
+        ShardId s = shard_of(id);
+        return s < shards_.size() ? &shards_[s]->engine : nullptr;
+    }
+
     // stores conversion between a named symbol to the symbol id
     std::unordered_map<Symbol, SymbolId> stock_registry_;
-    EventSink sink_;
-    Sequencer sequencer_;
-    MatchingEngine engine_;
+    std::vector<std::unique_ptr<ShardState>> shards_;
+    std::size_t next_drain_shard_ = 0;
 };

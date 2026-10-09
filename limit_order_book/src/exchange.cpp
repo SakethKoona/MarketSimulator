@@ -34,11 +34,7 @@ json Exchange::LoadConfig(const std::string &config_path) {
 Exchange::Exchange(const std::string &config_path)
     : Exchange(LoadConfig(config_path)) {}
 
-Exchange::Exchange(const json &cfg)
-    : sink_(cfg["sink_size"].get<std::size_t>()),
-      sequencer_(cfg["num_symbols"].get<std::size_t>()), // one counter per symbol
-      engine_(sink_, sequencer_) {
-
+Exchange::Exchange(const json &cfg) {
     // Populate the stock_registry
     SymbolId nextSymId = 0;
     json valid_sym = cfg["symbols"];
@@ -46,7 +42,26 @@ Exchange::Exchange(const json &cfg)
         stock_registry_.emplace(stock, nextSymId++);
     }
 
-    engine_.InitBooks(nextSymId);
+    std::size_t sink_size = cfg["sink_size"].get<std::size_t>();
+    std::size_t num_shards = cfg.contains("shards")
+                                 ? cfg["shards"].get<std::size_t>()
+                                 : 1;
+    if (num_shards == 0)
+        num_shards = 1;
+    if (num_shards > kMaxShards)
+        throw std::runtime_error("Exchange: at most 256 shards");
+
+    // One engine + sink per shard; symbol s lives on shard s % num_shards
+    std::vector<std::vector<SymbolId>> per_shard(num_shards);
+    for (SymbolId s = 0; s < nextSymId; s++)
+        per_shard[s % num_shards].push_back(s);
+
+    shards_.reserve(num_shards);
+    for (std::size_t i = 0; i < num_shards; i++) {
+        shards_.push_back(
+            std::make_unique<ShardState>(sink_size, static_cast<ShardId>(i)));
+        shards_.back()->engine.InitBooks(per_shard[i], nextSymId);
+    }
 }
 
 std::optional<SymbolId> Exchange::ResolveSymbol(const Symbol &symbol) const {
@@ -98,30 +113,57 @@ StatusCode Exchange::DisplayBook(const Symbol &symbol) {
 
 FillResult Exchange::SubmitOrder(SymbolId sym_id, Price price, Quantity qty,
                                  Side side, OrderType type, TypeInForce tif) {
-    return engine_.SubmitOrder(sym_id, price, qty, side, type, tif);
+    if (sym_id >= stock_registry_.size()) {
+        FillResult res(0);
+        res.status_code = StatusCode::SymbolNotFound;
+        res.fill_status = FillStatus::Rejected;
+        res.qty_remaining = qty;
+        return res;
+    }
+    return engine_for_symbol(sym_id).SubmitOrder(sym_id, price, qty, side,
+                                                 type, tif);
 }
 
 StatusCode Exchange::L2Snapshot(SymbolId sym_id) {
-    return engine_.L2Snapshot(sym_id);
+    if (sym_id >= stock_registry_.size())
+        return StatusCode::SymbolNotFound;
+    return engine_for_symbol(sym_id).L2Snapshot(sym_id);
 }
 
 StatusCode Exchange::DisplayBook(SymbolId sym_id) {
-    return engine_.DisplayBook(sym_id);
+    if (sym_id >= stock_registry_.size())
+        return StatusCode::SymbolNotFound;
+    return engine_for_symbol(sym_id).DisplayBook(sym_id);
 }
 
-StatusCode Exchange::CancelOrder(OrderId id) { return engine_.CancelOrder(id); }
+StatusCode Exchange::CancelOrder(OrderId id) {
+    MatchingEngine *eng = engine_for_order(id);
+    return eng ? eng->CancelOrder(id) : StatusCode::OrderNotFound;
+}
 
 StatusCode Exchange::ModifyOrder(OrderId id, Quantity newQty,
                                  std::optional<Price> newPrice) {
-    return engine_.ModifyOrder(id, newQty, newPrice);
+    MatchingEngine *eng = engine_for_order(id);
+    return eng ? eng->ModifyOrder(id, newQty, newPrice)
+               : StatusCode::OrderNotFound;
 }
 
 /* ---------------- Events ---------------- */
 
-OutBoundEvent *Exchange::NextEvent() { return sink_.consume(); }
+OutBoundEvent *Exchange::NextEvent() {
+    // Round-robin so no shard starves when several have events pending
+    for (std::size_t i = 0; i < shards_.size(); i++) {
+        std::size_t s = (next_drain_shard_ + i) % shards_.size();
+        if (OutBoundEvent *e = shards_[s]->sink.consume()) {
+            next_drain_shard_ = (s + 1) % shards_.size();
+            return e;
+        }
+    }
+    return nullptr;
+}
 
 void Exchange::DrainEvents(std::ostream &os) {
-    while (OutBoundEvent *e = sink_.consume()) {
+    while (OutBoundEvent *e = NextEvent()) {
         os << *e << "\n";
     }
 }

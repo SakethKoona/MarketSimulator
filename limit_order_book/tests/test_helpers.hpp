@@ -5,11 +5,17 @@
 #include <map>
 
 // Builds an Exchange from an inline config so tests don't depend on cwd.
-inline Exchange make_exchange(std::size_t sink_size = 4096) {
-    json cfg = {{"symbols", {{"AAPL", json::object()}, {"GOOG", json::object()}}},
+inline Exchange make_exchange(std::size_t sink_size = 4096,
+                              std::size_t shards = 1,
+                              std::vector<std::string> symbols = {"AAPL",
+                                                                  "GOOG"}) {
+    json syms = json::object();
+    for (auto &s : symbols)
+        syms[s] = json::object();
+    json cfg = {{"symbols", syms},
                 {"sink_size", sink_size},
-                {"seq_capacity", 2},
-                {"num_symbols", 2}};
+                {"num_symbols", symbols.size()},
+                {"shards", shards}};
     return Exchange(cfg);
 }
 

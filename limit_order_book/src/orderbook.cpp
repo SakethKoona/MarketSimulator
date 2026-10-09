@@ -174,10 +174,11 @@ OrderResult OrderBook::AddOrder(const Order &order) {
     OrderNode *node = orderPool_.allocate(order);
     level.AddOrder(node);
 
-    if (order.orderId >= orderLookup_.size())
-        orderLookup_.resize(std::max<std::size_t>(order.orderId + 1,
-                                                  orderLookup_.size() * 2));
-    orderLookup_[order.orderId] = node;
+    uint64_t seq = seq_of(order.orderId);
+    if (seq >= orderLookup_.size())
+        orderLookup_.resize(
+            std::max<std::size_t>(seq + 1, orderLookup_.size() * 2));
+    orderLookup_[seq] = node;
     orderCount_++;
 
     return OrderResult::Success;
@@ -198,7 +199,7 @@ void OrderBook::removeNode(OrderNode *node) {
         book.delete_node(priceKey);
     }
 
-    orderLookup_[id] = nullptr;
+    orderLookup_[seq_of(id)] = nullptr;
     orderPool_.deallocate(node);
     orderCount_--;
 }
