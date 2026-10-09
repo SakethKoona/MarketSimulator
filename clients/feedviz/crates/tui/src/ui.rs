@@ -18,6 +18,46 @@ pub fn draw(f: &mut Frame, app: &App) {
         crate::app::Screen::Market => crate::market::draw(f, app),
         crate::app::Screen::Events => crate::events::draw(f, app),
     }
+    if let Some((hl, _)) = app.picker {
+        draw_theme_picker(f, hl);
+    }
+}
+
+/// Centred list of themes; the highlighted one is applied live behind it.
+pub fn draw_theme_picker(f: &mut Frame, hl: usize) {
+    use crate::theme::{blurb, THEMES};
+    let area = f.area();
+    let n = THEMES.len() as u16;
+    let w = 62u16.min(area.width.saturating_sub(4));
+    let h = (n + 4).min(area.height.saturating_sub(2));
+    let rect = Rect { x: (area.width - w) / 2, y: (area.height - h) / 2, width: w, height: h };
+    f.render_widget(ratatui::widgets::Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(fg(th().amber))
+        .style(Style::default().bg(th().panel_hdr_bg))
+        .title(Span::styled(" THEME  ↑↓ preview · Enter keep · Esc revert ", panel_title()));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+    let rows = inner.height as usize;
+    let start = hl.saturating_sub(rows / 2).min(THEMES.len().saturating_sub(rows));
+    let mut lines = Vec::new();
+    for (i, t) in THEMES.iter().enumerate().skip(start).take(rows) {
+        let sel = i == hl;
+        let bg = if sel { th().select_bg } else { th().panel_hdr_bg };
+        let name_w = 17usize;
+        let text_w = (inner.width as usize).saturating_sub(name_w + 10);
+        lines.push(Line::from(vec![
+            Span::styled(if sel { " ▶ " } else { "   " }, Style::default().fg(th().amber).bg(bg)),
+            Span::styled(pad_right(t.name, name_w), if sel { bold(th().amber_bright).bg(bg) } else { Style::default().fg(th().text).bg(bg) }),
+            Span::styled("■", Style::default().fg(t.amber).bg(bg)),
+            Span::styled("■", Style::default().fg(t.bid).bg(bg)),
+            Span::styled("■", Style::default().fg(t.ask).bg(bg)),
+            Span::styled("■ ", Style::default().fg(t.text).bg(t.bg)),
+            Span::styled(pad_right(blurb(t.name), text_w), Style::default().fg(th().dim).bg(bg)),
+        ]));
+    }
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 /// The original single-screen layout, kept for the render test and as a
@@ -165,7 +205,7 @@ pub fn draw_footer_keys(f: &mut Frame, area: Rect, keys: &[(&str, &str)]) {
         spans.push(Span::styled(k.to_string(), bold(th().amber).bg(th().panel_hdr_bg)));
         spans.push(Span::styled(format!(" {v}   "), Style::default().fg(th().dim).bg(th().panel_hdr_bg)));
     }
-    let tail = format!("theme {} (t) · feedviz 0.2 ", th().name);
+    let tail = format!("theme {} (t next · T pick) · feedviz 0.2 ", th().name);
     let used: usize = spans.iter().map(|x| x.content.chars().count()).sum();
     let pad = (area.width as usize).saturating_sub(used + tail.chars().count());
     spans.push(Span::styled(" ".repeat(pad), Style::default().bg(th().panel_hdr_bg)));
@@ -174,7 +214,7 @@ pub fn draw_footer_keys(f: &mut Frame, area: Rect, keys: &[(&str, &str)]) {
 }
 
 fn draw_footer(f: &mut Frame, area: Rect) {
-    draw_footer_keys(f, area, &[("q", "quit"), ("space", "pause"), ("[ ]", "symbol"), ("d", "depth"), ("f", "filter"), ("↑↓", "select"), ("Enter", "inspect"), ("Esc", "follow")]);
+    draw_footer_keys(f, area, &[("q", "quit"), ("space", "pause"), ("[ ]", "symbol"), ("d", "depth"), ("f", "filter"), ("↑↓", "select"), ("Enter", "inspect"), ("Esc", "follow"), ("T", "themes")]);
 }
 
 // ------------------------------------------------------------ ladder

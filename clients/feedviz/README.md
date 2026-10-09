@@ -54,9 +54,10 @@ seconds, `--headless` for the line-per-second monitor instead of the UI,
 
 ### Themes
 
-`t` cycles, `--theme` selects. All six keep bids and asks apart in
-lightness as well as hue, reserve the chrome colour for titles and keys,
-and keep dim text readable on the ground.
+`T` opens a picker (↑↓ previews live, Enter keeps, Esc reverts), `t`
+cycles, `--theme NAME` selects at start, `--list-themes` prints them. All
+keep bids and asks apart in lightness as well as hue, reserve the chrome
+colour for titles and keys, and keep dim text readable on the ground.
 
 | name | ground | chrome | bids / asks | for |
 |---|---|---|---|---|
@@ -66,6 +67,24 @@ and keep dim text readable on the ground.
 | `solarized` | base03 | yellow | blue / orange | solarized users |
 | `paper` | warm off-white | ochre | navy / burnt orange | bright rooms |
 | `kanagawa` | Sumi Ink | Carp Yellow | Crystal Blue / Surimi Orange | kanagawa.nvim users |
+| `gruvbox` | #282828 | yellow | blue / orange | gruvbox users |
+| `catppuccin` | Mocha base | yellow | blue / peach | catppuccin users |
+| `tokyo-night` | indigo | yellow | blue / orange | tokyo night users |
+| `nord` | polar night | frost yellow | frost cyan / aurora orange | calm, low saturation |
+| `dracula` | #282a36 | yellow | cyan / orange | dracula users |
+| `rose-pine` | mauve | gold | foam / rose | soft, low contrast |
+| `everforest` | green-tinted | yellow | aqua-blue / orange | easy on the eyes |
+| `monokai` | #272822 | yellow | cyan / orange | classic |
+| `solarized-light` | base3 | yellow | blue / orange | light solarized |
+| `gruvbox-light` | cream | dark yellow | teal / burnt orange | light gruvbox |
+| `catppuccin-latte` | Latte base | yellow | blue / peach | light catppuccin |
+| `one-light` | grey-white | brown-gold | blue / burnt orange | light, neutral |
+| `ibm3270` | black | yellow | turquoise / pink | mainframe heritage |
+| `amber-crt` | near-black amber | white | light amber / deep orange | amber CRT |
+| `reuters` | dark blue | orange | cyan / coral, magenta gaps | the other terminal lineage |
+| `high-contrast` | black | yellow | light blue / orange | projectors, accessibility |
+| `mono` | white | black | dark grey / mid grey | e-ink; proves no hue dependence |
+| `daltonized` | near-black | pale gold | blue / orange, magenta gaps | deuteranopia-safe |
 
 Themes live in `crates/tui/src/theme.rs` as one struct each; adding one is
 a new entry in `THEMES`.

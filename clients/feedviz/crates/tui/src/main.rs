@@ -59,8 +59,14 @@ fn parse_args() -> Result<Args> {
             "--fps" => fps = val()?.parse()?,
             "--headless" => headless = true,
             "--theme" => theme_name = Some(val()?),
+            "--list-themes" => {
+                for t in theme::THEMES.iter() {
+                    println!("{:<18} {}", t.name, theme::blurb(t.name));
+                }
+                std::process::exit(0);
+            }
             "-h" | "--help" => {
-                println!("feedviz [--group G] [--port P] [--iface IP] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS] [--theme amber|midnight|phosphor|solarized|paper|kanagawa]");
+                println!("feedviz [--group G] [--port P] [--iface IP] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS] [--theme NAME] [--list-themes]");
                 std::process::exit(0);
             }
             other => bail!("unknown argument {other}"),
@@ -147,7 +153,7 @@ mod render_tests {
                 }
             }
         }
-        // Every theme renders both screens.
+        // Every theme renders both screens, and the picker overlay.
         for i in 0..theme::THEMES.len() {
             theme::set(i);
             let mut term = Terminal::new(TestBackend::new(200, 55)).unwrap();
@@ -155,8 +161,13 @@ mod render_tests {
             term.draw(|f| ui::draw(f, &app)).unwrap();
             app.screen = app::Screen::Events;
             term.draw(|f| ui::draw(f, &app)).unwrap();
+            app.picker = Some((i, 0));
+            term.draw(|f| ui::draw(f, &app)).unwrap();
+            if i == 0 { dump(&term, "picker_200x55"); }
+            app.picker = None;
         }
         theme::set(0);
+        assert!(theme::THEMES.iter().all(|t| !theme::blurb(t.name).is_empty()), "every theme needs a blurb");
         // Key handling smoke: walk the log and toggles without panicking.
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);

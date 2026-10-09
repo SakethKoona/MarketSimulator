@@ -23,6 +23,8 @@ pub struct App {
     pub interval_idx: usize,
     pub type_mask: u8,
     pub follow: Option<u64>,
+    /// Theme picker overlay: (highlighted index, theme to restore on Esc).
+    pub picker: Option<(usize, usize)>,
     pub paused: bool,
     pub sym_idx: usize,
     pub depth_idx: usize,
@@ -47,6 +49,7 @@ impl App {
             interval_idx: 0,
             type_mask: 0b11111,
             follow: None,
+            picker: None,
             paused: false,
             sym_idx: 0,
             depth_idx: 1,
@@ -178,6 +181,32 @@ impl App {
         use crossterm::event::{KeyCode, KeyModifiers};
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.quit = true;
+            return;
+        }
+        if let Some((hl, orig)) = self.picker {
+            let n = crate::theme::THEMES.len();
+            match key.code {
+                KeyCode::Esc => {
+                    crate::theme::set(orig);
+                    self.picker = None;
+                }
+                KeyCode::Enter | KeyCode::Char('T') | KeyCode::Char('q') => self.picker = None,
+                KeyCode::Up | KeyCode::Char('k') => {
+                    let i = (hl + n - 1) % n;
+                    crate::theme::set(i);
+                    self.picker = Some((i, orig));
+                }
+                KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
+                    let i = (hl + 1) % n;
+                    crate::theme::set(i);
+                    self.picker = Some((i, orig));
+                }
+                _ => {}
+            }
+            return;
+        }
+        if key.code == KeyCode::Char('T') {
+            self.picker = Some((crate::theme::index(), crate::theme::index()));
             return;
         }
         if self.inspect {

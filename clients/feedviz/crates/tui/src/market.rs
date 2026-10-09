@@ -18,7 +18,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     f.render_widget(Block::default().style(crate::theme::base()), area);
     let [hdr, body, foot] = Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).areas(area);
     draw_header(f, app, hdr);
-    draw_footer_keys(f, foot, &[("q", "quit"), ("e", "events"), ("space", "pause"), ("[ ]", "symbol"), ("i", "interval"), ("d", "depth")]);
+    draw_footer_keys(f, foot, &[("q", "quit"), ("e", "events"), ("space", "pause"), ("[ ]", "symbol"), ("i", "interval"), ("d", "depth"), ("T", "themes")]);
 
     let left_w = 52u16.min(body.width / 3);
     let right_w = 66u16.min(body.width * 2 / 5);
