@@ -6,6 +6,7 @@
 #include "orderbook.hpp"
 #include "results.hpp"
 #include "sequencer.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -37,7 +38,23 @@ class MatchingEngine {
     TradeId nextTradeId_{1};
     uint64_t nextSeq_{1};
     std::vector<std::unique_ptr<OrderBook>> books_vec_;
-    std::unordered_map<OrderId, SymbolId> orders_;
+
+    // OrderId -> SymbolId for every resting order, indexed by the dense id.
+    static constexpr SymbolId kNoSymbol = static_cast<SymbolId>(-1);
+    std::vector<SymbolId> orders_;
+    SymbolId symbolOf(OrderId id) const {
+        return id < orders_.size() ? orders_[id] : kNoSymbol;
+    }
+    void setSymbol(OrderId id, SymbolId sym) {
+        if (id >= orders_.size())
+            orders_.resize(std::max<std::size_t>(id + 1, orders_.size() * 2),
+                           kNoSymbol);
+        orders_[id] = sym;
+    }
+    void clearSymbol(OrderId id) {
+        if (id < orders_.size())
+            orders_[id] = kNoSymbol;
+    }
 
     // rest_action is what gets published if the order ends up resting:
     // Add for a new order, Replace for a cancel/replace keeping its id.

@@ -1,5 +1,6 @@
 #include "orderbook.hpp"
 #include "common.hpp"
+#include <algorithm>
 #include <iomanip>
 /* ============================================================
    TIMESTAMP HELPERS
@@ -51,11 +52,14 @@ void PrintOrderBookHeader(std::ostream &os) {
    ============================================================ */
 Order::Order(OrderId orderId, Price price, Quantity quantity,
              OrderType orderType, TypeInForce typeInForce, Side side)
-    : orderId(orderId), price(price), quantity(quantity), orderType(orderType),
-      typeInForce(typeInForce), side(side) {
+    : Order(orderId, price, quantity, orderType, typeInForce, side,
+            get_current_timestamp()) {}
 
-    this->timestamp = get_current_timestamp();
-}
+Order::Order(OrderId orderId, Price price, Quantity quantity,
+             OrderType orderType, TypeInForce typeInForce, Side side,
+             Timestamp timestamp)
+    : orderId(orderId), price(price), quantity(quantity), timestamp(timestamp),
+      orderType(orderType), typeInForce(typeInForce), side(side) {}
 
 std::ostream &operator<<(std::ostream &os, const Order &o) {
     os << COLORS::dim << "[";
@@ -84,41 +88,47 @@ std::ostream &operator<<(std::ostream &os, const Order &o) {
    PRICE LEVEL
    ============================================================ */
 
-OrderIterator PriceLevel::AddOrder(const Order &order) {
-    orders.push_back(order);
+void PriceLevel::AddOrder(OrderNode *node) {
+    node->level = this;
+    node->next = nullptr;
+    node->prev = tail;
+    if (tail)
+        tail->next = node;
+    else
+        head = node;
+    tail = node;
     size_++;
-    totalQuantity += order.quantity;
-    auto it = orders.end();
-    return --it;
+    totalQuantity += node->quantity;
 }
 
-OrderResult PriceLevel::RemoveOrder(OrderIterator orderIt) {
-    totalQuantity -= orderIt->quantity;
-    orders.erase(orderIt);
+void PriceLevel::RemoveOrder(OrderNode *node) {
+    if (node->prev)
+        node->prev->next = node->next;
+    else
+        head = node->next;
+    if (node->next)
+        node->next->prev = node->prev;
+    else
+        tail = node->prev;
+    node->prev = node->next = nullptr;
+    node->level = nullptr;
     size_--;
-    return OrderResult::Success;
+    totalQuantity -= node->quantity;
 }
 
-ModifyResult PriceLevel::ModifyOrder(OrderIterator &orderIt, Quantity newQty) {
-    if (newQty > orderIt->quantity) {
+ModifyResult PriceLevel::ModifyOrder(OrderNode *node, Quantity newQty) {
+    if (newQty > node->quantity) {
         return ModifyResult::QtyIncreaseNotAllowed;
     }
-    Quantity diff = orderIt->quantity - newQty;
-    totalQuantity -= diff;
-    orderIt->quantity = newQty;
+    totalQuantity -= node->quantity - newQty;
+    node->quantity = newQty;
     return ModifyResult::Success;
 }
-
-int PriceLevel::GetSize() const { return size_; }
-
-Quantity PriceLevel::TotalQuantity() const { return totalQuantity; }
-
-void PriceLevel::SetPrice(Price price) { this->price = price; }
 
 std::ostream &operator<<(std::ostream &os, const PriceLevel &pl) {
     os << COLORS::magenta << pl.price << COLORS::reset << std::endl;
 
-    for (const auto &order : pl.orders) {
+    for (const auto &order : pl.orders()) {
         os << "  " << order << std::endl;
     }
 
@@ -129,111 +139,106 @@ std::ostream &operator<<(std::ostream &os, const PriceLevel &pl) {
    ORDER BOOK
    ============================================================ */
 
-OrderBook::OrderBook() : bids_(0.5), asks_(0.5), symId(-1) {}
-OrderBook::OrderBook(SymbolId sym_id) : bids_(0.5), asks_(0.5), symId(sym_id) {}
+// Order nodes are allocated from 1 MB blocks; the arena grows as needed.
+static constexpr std::size_t kOrderArenaBlock = 1 << 20;
+
+OrderBook::OrderBook() : OrderBook(static_cast<SymbolId>(-1)) {}
+OrderBook::OrderBook(SymbolId sym_id)
+    : bids_(0.5), asks_(0.5), orderArena_(kOrderArenaBlock),
+      orderPool_(orderArena_), symId(sym_id) {}
+
+OrderBook::~OrderBook() {
+    // Nodes live in the arena, which frees everything at once; nothing to
+    // walk. The skiplists free their own level nodes.
+}
 
 const Book &OrderBook::bids() const { return bids_; }
 const Book &OrderBook::asks() const { return asks_; }
-std::size_t OrderBook::size() { return (bids_.len() + asks_.len()); }
+std::size_t OrderBook::size() const { return (bids_.len() + asks_.len()); }
+std::size_t OrderBook::orderCount() const { return orderCount_; }
 
 OrderResult OrderBook::AddOrder(const Order &order) {
-    if (order.quantity <= 0)
+    if (order.quantity == 0)
         return OrderResult::InvalidQty;
 
-    if (orderLookup_.find(order.orderId) != orderLookup_.end())
+    if (lookup(order.orderId) != nullptr)
         return OrderResult::DuplicateOrder;
 
-    // Checks have passed do the actual inserting
     auto &book = (order.side == Side::Buy) ? bids_ : asks_;
     Price priceKey = (order.side == Side::Buy) ? -order.price : order.price;
 
-    auto *priceLevel = book.insertOrGet(priceKey);
-    priceLevel->value.SetPrice(order.price);
-    auto insertResult = priceLevel->value.AddOrder(order);
+    auto *levelNode = book.insertOrGet(priceKey);
+    PriceLevel &level = levelNode->value;
+    level.SetPrice(order.price);
 
-    OrderInfo entryInfo = OrderInfo{};
-    entryInfo.priceLevel = &priceLevel->value;
-    entryInfo.order = insertResult;
+    OrderNode *node = orderPool_.allocate(order);
+    level.AddOrder(node);
 
-    orderLookup_.insert({order.orderId, entryInfo});
+    if (order.orderId >= orderLookup_.size())
+        orderLookup_.resize(std::max<std::size_t>(order.orderId + 1,
+                                                  orderLookup_.size() * 2));
+    orderLookup_[order.orderId] = node;
+    orderCount_++;
 
     return OrderResult::Success;
 }
 
-/// @brief Cancels a specific order from the orderbook by removing it from both
-/// the price level and the order lookup table. Automatically removes the price
-/// level if it's empty after the cancel
-/// @param id Id of the order we want to cancel
-/// @return OrderResult: an error code struct representing what happenned with
-/// the order
-OrderResult OrderBook::CancelOrder(const OrderId &id) {
-    auto it = orderLookup_.find(id);
-    if (it == orderLookup_.end())
+/// Unlinks a node from its level, drops the level if empty, releases the
+/// node to the pool and clears the lookup slot.
+void OrderBook::removeNode(OrderNode *node) {
+    PriceLevel *level = node->level;
+    Side side = node->side;
+    OrderId id = node->orderId;
+
+    level->RemoveOrder(node);
+
+    if (level->GetSize() == 0) {
+        Book &book = (side == Side::Buy) ? bids_ : asks_;
+        Price priceKey = (side == Side::Buy) ? -level->price : level->price;
+        book.delete_node(priceKey);
+    }
+
+    orderLookup_[id] = nullptr;
+    orderPool_.deallocate(node);
+    orderCount_--;
+}
+
+/// @brief Cancels an order: removes it from its price level and the lookup
+/// table, and drops the price level if it is now empty.
+OrderResult OrderBook::CancelOrder(OrderId id) {
+    OrderNode *node = lookup(id);
+    if (node == nullptr)
         return OrderResult::OrderNotFound;
-
-    // Delete FROM the price level
-    PriceLevel *priceLevel = it->second.priceLevel;
-    Side side = it->second.order->side;
-    priceLevel->RemoveOrder(it->second.order);
-
-    // Delete the price level if needed
-    if (priceLevel->GetSize() <= 0) {
-        Book &book = side == Side::Buy ? bids_ : asks_;
-        Price priceKey =
-            (side == Side::Buy) ? -priceLevel->price : priceLevel->price;
-        bool deletionSuccess = book.delete_node(priceKey);
-        if (!deletionSuccess) {
-            return OrderResult::OrderNotFound;
-        }
-    }
-
-    // If all went well, delete from the orderLookup_
-    orderLookup_.erase(it);
+    removeNode(node);
     return OrderResult::Success;
 }
 
-/// @brief Modifies the order with a new Quantity less than the original,
-/// maintaining price-time priority. If the newQty == 0, we automatically remove
-/// from the Price level and order lookup table.
-/// @param id id of the order
-/// @param newQty new quantity
-/// @return ModifyResult: an error code struct representing the outcome of the
-/// operation
+/// @brief Reduces an order's quantity in place, keeping price-time priority.
+/// newQty == 0 cancels the order.
 ModifyResult OrderBook::ModifyOrder(OrderId id, Quantity newQty) {
-    // First, we find the order within the orderlookup
-    auto it = orderLookup_.find(id);
-    if (it == orderLookup_.end()) {
+    OrderNode *node = lookup(id);
+    if (node == nullptr)
         return ModifyResult::OrderNotFound;
-    }
-
-    // Get the pointer to the actual order
-    OrderInfo &entryInfo = it->second;
-    PriceLevel *pl = entryInfo.priceLevel;
-    OrderIterator order = entryInfo.order;
 
     if (newQty == 0) {
-        auto res = CancelOrder(id);
-        return (res == OrderResult::Success) ? ModifyResult::Success
-                                             : ModifyResult::Rejected;
+        removeNode(node);
+        return ModifyResult::Success;
     }
 
-    return pl->ModifyOrder(order, newQty);
+    return node->level->ModifyOrder(node, newQty);
 }
 
 const PriceLevel *OrderBook::BestAsk() const {
     auto *node = asks_.GetHead();
-    if (!node) {
-        return nullptr;
-    }
-    return &node->value;
+    return node ? &node->value : nullptr;
 }
 
 const PriceLevel *OrderBook::BestBid() const {
-    auto *bestBidNode = bids_.GetHead();
-    if (!bestBidNode)
-        return nullptr;
-    return &bestBidNode->value;
+    auto *node = bids_.GetHead();
+    return node ? &node->value : nullptr;
 }
+
+const OrderNode *OrderBook::FindOrder(OrderId id) const { return lookup(id); }
 
 /* ============================================================
    DISPLAY (L3, FORWARD ONLY)
@@ -257,11 +262,6 @@ bool isDarkMode() {
 
     // Default to dark mode
     return true;
-}
-
-const OrderInfo *OrderBook::FindOrder(OrderId id) {
-    auto it = orderLookup_.find(id);
-    return (it == orderLookup_.end()) ? nullptr : &it->second;
 }
 
 void OrderBook::Display() {
@@ -297,7 +297,7 @@ void OrderBook::Display() {
                   << " (" << level.GetSize() << " orders)" << COLORS::reset
                   << "\n";
 
-        for (const auto &order : level.orders) {
+        for (const auto &order : level.orders()) {
             std::cout << "  " << order << "\n";
         }
         std::cout << "\n";
@@ -320,7 +320,7 @@ void OrderBook::Display() {
                   << " (" << level.GetSize() << " orders)" << COLORS::reset
                   << "\n";
 
-        for (const auto &order : level.orders) {
+        for (const auto &order : level.orders()) {
             std::cout << "  " << order << "\n";
         }
         std::cout << "\n";

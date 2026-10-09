@@ -72,7 +72,7 @@ FillResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
         return res;
     }
 
-    Order order = Order(id, price, quantity, type, tif, side);
+    Order order(id, price, quantity, type, tif, side, get_current_timestamp());
     return FillOrder(order, symId, rest_action);
 }
 
@@ -153,28 +153,33 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id,
             break;
         }
 
-        // 3. Otherwise, we get the first order from that price level
-        const Order resting = priceLevel->orders.front();
+        // 3. Otherwise, look at the first order at that level. Copy only
+        // the scalars we need; the node is freed if fully consumed.
+        const OrderNode *head = priceLevel->front();
+        const OrderId resting_id = head->orderId;
+        const Price resting_price = head->price;
+        const Quantity resting_qty = head->quantity;
+        const Side resting_side = head->side;
 
         if (incoming.orderType == OrderType::LIMIT &&
-            !IsPriceMoreAggressive(incoming.price, resting.price,
+            !IsPriceMoreAggressive(incoming.price, resting_price,
                                    incoming.side)) {
             break;
         }
 
-        Quantity exec_quantity = std::min(incoming.quantity, resting.quantity);
-        Quantity resting_remaining = resting.quantity - exec_quantity;
+        Quantity exec_quantity = std::min(incoming.quantity, resting_qty);
+        Quantity resting_remaining = resting_qty - exec_quantity;
 
         // One book_seq covers both perspectives of this match
         uint64_t seq = nextSeq();
 
         if (resting_remaining == 0) {
             // Resting order fully consumed: remove it from the book
-            book.CancelOrder(resting.orderId);
-            orders_.erase(resting.orderId);
+            book.CancelOrder(resting_id);
+            clearSymbol(resting_id);
         } else {
             // Resting order partially consumed: shrink it in place
-            book.ModifyOrder(resting.orderId, resting_remaining);
+            book.ModifyOrder(resting_id, resting_remaining);
         }
 
         // Every match is exactly one Execute for the resting side paired
@@ -182,12 +187,12 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id,
         // remaining 0 means the order left the book; no Delete follows.
         // Delete is reserved for owner cancels and replaces that rest
         // nothing.
-        sink_.emit_execute_event(sym_id, resting.orderId, seq, resting.side,
-                                 resting.price, resting_remaining);
+        sink_.emit_execute_event(sym_id, resting_id, seq, resting_side,
+                                 resting_price, resting_remaining);
 
         // Trade always executes at the resting price
         sink_.emit_trade_event(sym_id, nextTradeId(), incoming.orderId,
-                               resting.orderId, incoming.side, resting.price,
+                               resting_id, incoming.side, resting_price,
                                exec_quantity, seq);
 
         res.qty_executed += exec_quantity;
@@ -210,7 +215,7 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id,
                                       : StatusCode::Failed;
                 return res;
             }
-            orders_[incoming.orderId] = sym_id;
+            setSymbol(incoming.orderId, sym_id);
             sink_.emit_book_event(rest_action, sym_id, incoming.orderId,
                                   nextSeq(), incoming.side, incoming.price,
                                   incoming.quantity);
@@ -249,27 +254,24 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id,
 StatusCode MatchingEngine::CancelOrder(OrderId id) {
     // First, we search the order lookup in the engine to 1. get the engine,
     // and also to check if the order was even processed
-    auto it = orders_.find(id);
-    if (it == orders_.end()) {
+    SymbolId sym_id = symbolOf(id);
+    if (sym_id == kNoSymbol) {
         return StatusCode::OrderNotFound;
     }
-
-    // Otherwise, let's get the pointer to the book
-    SymbolId sym_id = it->second;
     OrderBook &book = *books_vec_[sym_id];
 
-    const OrderInfo *cancelled = book.FindOrder(id);
+    const OrderNode *cancelled = book.FindOrder(id);
     if (cancelled == nullptr) {
         return StatusCode::OrderNotFound;
     }
 
-    // Copy what we need before the book erases the order
-    Side side = cancelled->order->side;
-    Price price = cancelled->order->price;
+    // Copy what we need before the book frees the node
+    Side side = cancelled->side;
+    Price price = cancelled->price;
 
     auto result = book.CancelOrder(id);
     if (result == OrderResult::Success) {
-        orders_.erase(it);
+        clearSymbol(id);
         sink_.emit_cancel_event(sym_id, id, MatchingEngine::nextSeq(), side,
                                 price);
         return StatusCode::Success;
@@ -287,24 +289,20 @@ void MatchingEngine::ReplaceOrder(OrderBook &book, OrderId id, Price price,
     // the outcome: any trades, then a Replace carrying the new resting state,
     // or a Delete if nothing is left to rest.
     book.CancelOrder(id);
-    orders_.erase(id);
+    clearSymbol(id);
     SubmitOrderInternal(sym_id, id, price, qty, side, type, tif,
                         BookAction::Replace);
 }
 
 StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
                                        std::optional<Price> newPrice) {
-    auto it = orders_.find(id);
-    if (it == orders_.end()) {
+    SymbolId sym_id = symbolOf(id);
+    if (sym_id == kNoSymbol) {
         return StatusCode::OrderNotFound;
     }
-
-    SymbolId sym_id = it->second;
     OrderBook &book = *books_vec_[sym_id];
 
-    // First, get the order
-    const OrderInfo *resting = book.FindOrder(id);
-
+    const OrderNode *resting = book.FindOrder(id);
     if (resting == nullptr)
         return StatusCode::OrderNotFound;
 
@@ -314,14 +312,14 @@ StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
     }
 
     // Case 1: changing price OR higher quantity
-    if (newPrice || newQty > resting->order->quantity) {
+    if (newPrice || newQty > resting->quantity) {
         // We cancel and create
-        Price oldPrice = resting->order->price;
+        Price oldPrice = resting->price;
         OrderId newId =
-            resting->order->orderId; // New id stays the same as the old id
-        Side newSide = resting->order->side;
-        OrderType newType = resting->order->orderType;
-        TypeInForce newTif = resting->order->typeInForce;
+            resting->orderId; // New id stays the same as the old id
+        Side newSide = resting->side;
+        OrderType newType = resting->orderType;
+        TypeInForce newTif = resting->typeInForce;
 
         Price replacePrice = newPrice.value_or(oldPrice);
 
@@ -333,9 +331,9 @@ StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         // FillOrder as usual.
         ReplaceOrder(book, newId, replacePrice, newQty, newSide, newType,
                      newTif);
-    } else if (newQty < resting->order->quantity) {
-        Side side = resting->order->side;
-        Price price = resting->order->price;
+    } else if (newQty < resting->quantity) {
+        Side side = resting->side;
+        Price price = resting->price;
         if (book.ModifyOrder(id, newQty) == ModifyResult::Success) {
             sink_.emit_modify_event(sym_id, id, nextSeq(), side, price,
                                     newQty);

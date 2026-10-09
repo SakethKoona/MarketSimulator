@@ -1,31 +1,43 @@
 #include "arena.hpp"
 
-ArenaAllocator::ArenaAllocator(std::size_t size) : capacity_(size), offset_(0) {
-    // We allocate all the memory at once
-    buffer_ = static_cast<char *>(::operator new(size));
+ArenaAllocator::ArenaAllocator(std::size_t block_size)
+    : block_size_(block_size), current_(nullptr), offset_(0) {
+    add_block();
+}
+
+ArenaAllocator::~ArenaAllocator() {
+    for (char *b : blocks_)
+        ::operator delete(b);
+}
+
+void ArenaAllocator::add_block() {
+    char *b = static_cast<char *>(::operator new(block_size_));
+    blocks_.push_back(b);
+    current_ = b;
+    offset_ = 0;
 }
 
 void *ArenaAllocator::allocate(std::size_t size, std::size_t alignment) {
-    // So, in this function, we want to do the following:
-    // 1. Determine if we even have enough space to allocate this, otherwise
-    // throw or return a nullptr
-    // 2. adjust the offset_
-    // 3. return the memory that was allocated
+    if (size + alignment > block_size_)
+        throw std::bad_alloc(); // single object larger than a block
 
-    std::size_t remaining_space = capacity_ - offset_;
-    char *current_ptr = buffer_ + offset_;
-    void *aligned_ptr = current_ptr;
-
-    if (std::align(alignment, size, aligned_ptr, remaining_space) ==
-        nullptr) { // Alignment failed, we didn't have enough space
-        // Alternatively:
-        // return nullptr;
-        throw std::bad_alloc();
+    std::size_t remaining = block_size_ - offset_;
+    void *ptr = current_ + offset_;
+    if (std::align(alignment, size, ptr, remaining) == nullptr) {
+        add_block();
+        remaining = block_size_;
+        ptr = current_;
+        std::align(alignment, size, ptr, remaining); // cannot fail now
     }
 
-    // Otherwise, we go ahead and make our adjustments
-    offset_ = static_cast<char *>(aligned_ptr) + size - buffer_;
-    return aligned_ptr;
+    offset_ = static_cast<char *>(ptr) + size - current_;
+    return ptr;
 }
 
-void ArenaAllocator::reset() { offset_ = 0; }
+void ArenaAllocator::reset() {
+    for (std::size_t i = 1; i < blocks_.size(); i++)
+        ::operator delete(blocks_[i]);
+    blocks_.resize(1);
+    current_ = blocks_[0];
+    offset_ = 0;
+}
