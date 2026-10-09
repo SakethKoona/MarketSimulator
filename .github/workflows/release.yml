@@ -1,0 +1,61 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  feedviz:
+    name: feedviz ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: build
+        run: cd clients/feedviz && cargo build --release --target ${{ matrix.target }}
+      - name: package
+        run: |
+          mkdir -p dist
+          cp clients/feedviz/target/${{ matrix.target }}/release/feedviz dist/
+          cp clients/feedviz/README.md dist/README.md
+          cp docs/protocol/feed-v1.md dist/feed-v1.md
+          tar -C dist -czf feedviz-${{ github.ref_name }}-${{ matrix.target }}.tar.gz .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: feedviz-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+
+  exchange:
+    name: exchange ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 4
+      - name: package
+        run: |
+          mkdir -p dist/configs dist/tools
+          cp build/gateway/exchange_server build/gateway/flowgen build/gateway/feed_dump dist/
+          cp build/gateway/jsonl_ingress.* dist/
+          cp configs/default.json dist/configs/
+          cp gateway/tools/boe_client.py gateway/tools/jsonl_client.py dist/tools/
+          cp gateway/README.md dist/README.md
+          tar -C dist -czf exchange-${{ github.ref_name }}-$(uname -s | tr A-Z a-z)-$(uname -m).tar.gz .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: exchange-*.tar.gz

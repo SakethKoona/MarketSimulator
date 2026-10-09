@@ -74,8 +74,9 @@ Place an order yourself with `python3 gateway/tools/boe_client.py demo`, or
   sequence. feedviz heals 1,000 forced gaps in four seconds at full rate.
 - **Ingress is an API, not a protocol.** Adapters are shared libraries
   against one C header, loaded from config; BOE is just the first one.
-- **Measured** on one laptop over loopback, 3 shards: 4 BOE sessions at
-  20k orders/s, ack round trip p50 203 µs, p99 265 µs; 8 sessions at 60k/s,
+- **Measured** on one laptop over loopback: at a calm 2k orders/s across
+  100 symbols on 4 shards, ack round trip p50 108 µs, p99 175 µs; 4 BOE
+  sessions at 20k orders/s, p50 203 µs, p99 265 µs; 8 sessions at 60k/s,
   p50 169 µs, p99 1.1 ms; feed 70k msgs/s with zero gaps. See
   `gateway/README.md`.
 
@@ -90,6 +91,14 @@ Linux has only been exercised in CI.
 
 If you installed the `mktsim` CLI before the `engine/` rename, rerun
 `make install` from `engine/` to refresh the symlink.
+
+## Releases
+
+Tagging `vX.Y.Z` builds release archives: `feedviz` for macOS (arm64 and
+x86_64) and Linux x86_64, and the exchange binaries with the default
+config and the Python clients for macOS and Linux. Watching a feed then
+needs no toolchain: download `feedviz`, run it with the exchange's
+address.
 
 ## License
 

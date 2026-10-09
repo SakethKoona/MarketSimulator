@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "feed_client"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "protocol",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "feedviz"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "crossterm",
@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "thiserror",
  "zerocopy",

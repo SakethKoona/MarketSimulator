@@ -272,7 +272,7 @@ pub fn draw_footer_keys(f: &mut Frame, area: Rect, keys: &[(&str, &str)]) {
         spans.push(Span::styled(k.to_string(), bold(th().amber).bg(th().panel_hdr_bg)));
         spans.push(Span::styled(format!(" {v}   "), Style::default().fg(th().dim).bg(th().panel_hdr_bg)));
     }
-    let tail = format!("theme {} (T) · feedviz 0.2 ", th().name);
+    let tail = format!("theme {} (T) · feedviz 0.3 ", th().name);
     let used: usize = spans.iter().map(|x| x.content.chars().count()).sum();
     let pad = (area.width as usize).saturating_sub(used + tail.chars().count());
     spans.push(Span::styled(" ".repeat(pad), Style::default().bg(th().panel_hdr_bg)));
