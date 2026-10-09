@@ -104,8 +104,10 @@ column, 140×40 is the comfortable minimum.
 | `[` `]` | previous / next symbol |
 | `/` | symbol picker: type to fuzzy-filter, ↑↓, Enter |
 | `T` | theme picker: type to fuzzy-filter, ↑↓ previews live, Enter keeps, Esc reverts |
-| `d` | ladder depth 10 → 14 → 20 → 40 |
-| `i` | candle interval 1s → 5s → 30s → 1m |
+| `d` | ladder rows per side 10 → 14 → 20 → 40 |
+| `g` | ladder tick grouping ×1 → ×2 → ×5 → ×10 |
+| `c` | re-centre the ladder on the mid |
+| `i` | candle interval 1s → 5s → 30s → 1m (default 5s) |
 | `t` | next theme |
 
 Both pickers are telescope-style: a prompt line, matches ranked by a
@@ -134,9 +136,12 @@ row, so it stays usable when there are hundreds of symbols.
 
 ### MARKET screen
 
-- **L2 BOOK**: asks above, bids below, price in the centre, cumulative
-  depth bars behind the quantities, order count per level, mid, spread and
-  imbalance, last trade, volume, live orders and level counts.
+- **L2 BOOK**: price-anchored. One row per tick (or tick group, `g`),
+  empty ticks shown blank, so rows never jump when a level appears or
+  empties; the anchor follows the mid only when it drifts toward an edge,
+  or on `c`. Quantities that changed flash and fade over 600 ms.
+  Cumulative depth bars, order count per level, mid, spread, imbalance,
+  last trade (flashing by aggressor side), volume, live orders.
 - **CANDLES / VOL**: one candle per interval from execution prices (blue
   up, orange down), half-block resolution, a dashed VWAP line, executed
   volume underneath, the forming candle's OHLC and VWAP in the title.
@@ -149,6 +154,11 @@ row, so it stays usable when there are hundreds of symbols.
 - **SYMBOL MONITOR**: one row per symbol with last, change, best bid and
   ask, spread, volume, messages per second and a trend sparkline.
 - **TIME & SALES** and a three-line **FEED HEALTH** strip.
+
+**Cadence.** Rendering runs at the frame rate, but what the eye sees is
+conflated: the ladder, candles and tape refresh at 8 Hz, the indicators,
+flow and monitor at 1 Hz, and changed cells flash instead of churning.
+EVENTS and INSPECT read the latest snapshot every frame.
 
 ### EVENTS screen
 

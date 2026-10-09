@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
 use ratatui::Frame;
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     match app.screen {
         crate::app::Screen::Market => crate::market::draw(f, app),
         crate::app::Screen::Events => crate::events::draw(f, app),
@@ -104,7 +104,7 @@ pub fn draw_picker(f: &mut Frame, p: &crate::picker::Picker) {
 /// The original single-screen layout, kept for the render test and as a
 /// fallback for very small terminals.
 #[allow(dead_code)]
-pub fn draw_classic(f: &mut Frame, app: &App) {
+pub fn draw_classic(f: &mut Frame, app: &mut App) {
     let area = f.area();
     f.render_widget(Block::default().style(theme::base()), area);
     let [hdr, body, foot] =
@@ -301,92 +301,188 @@ fn draw_footer(f: &mut Frame, area: Rect) {
 
 // ------------------------------------------------------------ ladder
 
-pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
-    let Some(sym) = app.current_symbol() else {
+/// Blend a theme colour toward a flash colour by `age` (0 fresh .. 1 faded).
+fn blend(base: Color, flash: Color, age: f32) -> Color {
+    let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (base, flash) else { return base };
+    let k = 1.0 - age.clamp(0.0, 1.0);
+    let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * k * 0.55) as u8;
+    Color::Rgb(mix(r1, r2), mix(g1, g2), mix(b1, b2))
+}
+
+/// Price-anchored ladder: one row per tick group, empty ticks shown blank,
+/// centred on an anchor that only moves when the mid drifts near an edge
+/// (or on `c`). Changed quantities flash and fade.
+pub fn draw_ladder(f: &mut Frame, app: &mut App, area: Rect) {
+    let Some(sym) = app.fast.symbols.get(app.sym_idx).cloned() else {
         let inner = panel(f, area, "L2 BOOK", "");
         f.render_widget(Paragraph::new("waiting for feed…").style(dim()), inner);
         return;
     };
+    let g = app.group();
     let depth = app.depth();
-    let inner = panel(f, area, &format!("L2 BOOK · {}", sym_name(sym)), &format!("depth {depth} · cum ▮"));
+    let inner = panel(
+        f,
+        area,
+        &format!("L2 BOOK · {}", sym_name(&sym)),
+        &format!("{} rows · tick ×{} · c centre", depth * 2, g),
+    );
     let w = inner.width as usize;
-    // columns: ord(3) sp qty(8) sp bar(b) sp price(9) sp bar(b) sp qty(8) sp ord(3)
     let fixed = 3 + 1 + 8 + 1 + 1 + 9 + 1 + 1 + 8 + 1 + 3;
     let barw = w.saturating_sub(fixed) / 2;
-    let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(vec![Span::styled(
+    let rows_avail = inner.height.saturating_sub(3) as usize; // header, mid, footer
+    let per_side = (rows_avail / 2).min(depth).max(1);
+
+    // Bin levels by group.
+    let bin = |p: u64| (p / g) * g;
+    let mut bids: std::collections::BTreeMap<u64, (u64, u32)> = Default::default();
+    let mut asks: std::collections::BTreeMap<u64, (u64, u32)> = Default::default();
+    for l in &sym.bids {
+        let e = bids.entry(bin(l.price)).or_default();
+        e.0 += l.qty;
+        e.1 += l.count;
+    }
+    for l in &sym.asks {
+        let e = asks.entry(bin(l.price)).or_default();
+        e.0 += l.qty;
+        e.1 += l.count;
+    }
+    // Anchor: the mid, re-centred only when it drifts past half the window.
+    let mid2 = sym.mid_x2().or_else(|| sym.last_trade.map(|t| t.price * 2)).unwrap_or(0);
+    let mid_bin = bin(mid2 / 2);
+    let anchor = {
+        let cur = app.anchor.get(&sym.symbol_id).copied();
+        let keep = cur.filter(|a| a.abs_diff(mid_bin) < (per_side as u64 / 2).max(1) * g);
+        let a = keep.unwrap_or(mid_bin);
+        app.anchor.insert(sym.symbol_id, a);
+        a
+    };
+    // Rows: asks above the anchor (anchor+g*per_side .. anchor+g), bids below (anchor .. anchor-g*(per_side-1)).
+    let max_cum = {
+        let mut c = 0u64;
+        let mut m = 0u64;
+        for (p, (q, _)) in asks.iter() {
+            if *p > anchor && *p <= anchor + g * per_side as u64 {
+                c += q;
+                m = m.max(c);
+            }
+        }
+        c = 0;
+        for (p, (q, _)) in bids.iter().rev() {
+            if *p <= anchor && *p + g * per_side as u64 > anchor {
+                c += q;
+                m = m.max(c);
+            }
+        }
+        m.max(1)
+    };
+    let mut lines: Vec<Line> = Vec::with_capacity(rows_avail + 3);
+    lines.push(Line::from(Span::styled(
         format!(
             "{} {} {} {} {} {} {}",
             pad_left("ORD", 3),
-            pad_left("th().bid", 8),
+            pad_left("BID", 8),
             " ".repeat(barw),
             center("PRICE", 9),
             " ".repeat(barw),
-            pad_right("th().ask", 8),
+            pad_right("ASK", 8),
             pad_right("ORD", 3)
         ),
         dim(),
-    )]));
-    let rows_avail = inner.height.saturating_sub(2) as usize; // header + mid line
-    let per_side = (rows_avail / 2).min(depth);
-    let asks: Vec<_> = sym.asks.iter().take(per_side).collect();
-    let bids: Vec<_> = sym.bids.iter().take(per_side).collect();
-    let max_cum = asks.last().map(|l| l.cum).unwrap_or(0).max(bids.last().map(|l| l.cum).unwrap_or(0)).max(1);
-    // Asks: worst at top, best just above the mid line.
-    for l in asks.iter().rev() {
-        let bw = ((l.cum as f64 / max_cum as f64) * barw as f64).round() as usize;
-        lines.push(Line::from(vec![
+    )));
+    let sid = sym.symbol_id;
+    // Asks: top row is the farthest.
+    let mut cum = 0u64;
+    let mut ask_rows: Vec<Line> = Vec::new();
+    for i in 1..=per_side as u64 {
+        let p = anchor + g * i;
+        let lv = asks.get(&p).copied();
+        if let Some((q, _)) = lv {
+            cum += q;
+        }
+        let bw = ((cum as f64 / max_cum as f64) * barw as f64).round() as usize;
+        let flash = lv.and_then(|_| app.flash_age(sid, b'S', p));
+        let qty_style = match flash {
+            Some(age) => Style::default().fg(th().ask_text).bg(blend(th().bg, th().ask_bar_solid, age)),
+            None => fg(th().ask_text),
+        };
+        let px_style = if lv.is_some() { fg(th().ask) } else { dimmer() };
+        ask_rows.push(Line::from(vec![
             Span::raw(format!("{} {} {} ", " ".repeat(3), " ".repeat(8), " ".repeat(barw))),
-            Span::styled(center(&fmt::commas(l.price), 9), fg(th().ask)),
+            Span::styled(center(&fmt::commas(p), 9), px_style),
             Span::raw(" "),
-            Span::styled(" ".repeat(bw.min(barw)), Style::default().bg(th().ask_bar)),
-            Span::raw(" ".repeat(barw.saturating_sub(bw))),
+            Span::styled(" ".repeat(if lv.is_some() { bw.min(barw) } else { 0 }), Style::default().bg(th().ask_bar)),
+            Span::raw(" ".repeat(barw.saturating_sub(if lv.is_some() { bw } else { 0 }))),
             Span::raw(" "),
-            Span::styled(pad_right(&fmt::commas(l.qty), 8), fg(th().ask_text)),
+            Span::styled(pad_right(&lv.map(|(q, _)| fmt::commas(q)).unwrap_or_default(), 8), qty_style),
             Span::raw(" "),
-            Span::styled(pad_right(&l.count.to_string(), 3), dim()),
+            Span::styled(pad_right(&lv.map(|(_, n)| n.to_string()).unwrap_or_default(), 3), dim()),
         ]));
     }
+    ask_rows.reverse();
+    lines.extend(ask_rows);
     // Mid line.
     let mid = match (sym.best_bid(), sym.best_ask()) {
         (Some(b), Some(a)) => {
-            let bid_cum = bids.last().map(|l| l.cum).unwrap_or(0) as f64;
-            let ask_cum = asks.last().map(|l| l.cum).unwrap_or(0) as f64;
-            let imb = if bid_cum + ask_cum > 0.0 { (bid_cum - ask_cum) / (bid_cum + ask_cum) * 100.0 } else { 0.0 };
-            let midpx = (a.price + b.price) as f64 / 2.0;
+            let bid_depth: u64 = sym.bids.iter().take(depth).map(|l| l.qty).sum();
+            let ask_depth: u64 = sym.asks.iter().take(depth).map(|l| l.qty).sum();
+            let imb = if bid_depth + ask_depth > 0 {
+                (bid_depth as f64 - ask_depth as f64) / (bid_depth + ask_depth) as f64 * 100.0
+            } else {
+                0.0
+            };
             Line::from(vec![
                 Span::styled(" MID ", dim()),
-                Span::styled(format!("{midpx:.1}"), bold(th().amber)),
+                Span::styled(format!("{:.1}", (a.price + b.price) as f64 / 2.0), bold(th().amber)),
                 Span::styled("  SPREAD ", dim()),
                 Span::styled(fmt::commas(a.price - b.price), amber()),
                 Span::styled("  IMB ", dim()),
                 Span::styled(format!("{imb:+.0}%"), fg(if imb >= 0.0 { th().bid } else { th().ask })),
+                Span::styled(if anchor != mid_bin { "  ⌖ off-centre" } else { "" }, dimmer()),
             ])
         }
         _ => Line::from(Span::styled(" MID  —", dim())),
     };
     lines.push(mid);
-    for l in bids.iter() {
-        let bw = ((l.cum as f64 / max_cum as f64) * barw as f64).round() as usize;
+    cum = 0;
+    for i in 0..per_side as u64 {
+        let Some(p) = anchor.checked_sub(g * i) else { break };
+        let lv = bids.get(&p).copied();
+        if let Some((q, _)) = lv {
+            cum += q;
+        }
+        let bw = ((cum as f64 / max_cum as f64) * barw as f64).round() as usize;
+        let flash = lv.and_then(|_| app.flash_age(sid, b'B', p));
+        let qty_style = match flash {
+            Some(age) => Style::default().fg(th().bid_text).bg(blend(th().bg, th().bid_bar_solid, age)),
+            None => fg(th().bid_text),
+        };
+        let px_style = if lv.is_some() { fg(th().bid) } else { dimmer() };
         lines.push(Line::from(vec![
-            Span::styled(pad_left(&l.count.to_string(), 3), dim()),
+            Span::styled(pad_left(&lv.map(|(_, n)| n.to_string()).unwrap_or_default(), 3), dim()),
             Span::raw(" "),
-            Span::styled(pad_left(&fmt::commas(l.qty), 8), fg(th().bid_text)),
+            Span::styled(pad_left(&lv.map(|(q, _)| fmt::commas(q)).unwrap_or_default(), 8), qty_style),
             Span::raw(" "),
-            Span::raw(" ".repeat(barw.saturating_sub(bw))),
-            Span::styled(" ".repeat(bw.min(barw)), Style::default().bg(th().bid_bar)),
+            Span::raw(" ".repeat(barw.saturating_sub(if lv.is_some() { bw } else { 0 }))),
+            Span::styled(" ".repeat(if lv.is_some() { bw.min(barw) } else { 0 }), Style::default().bg(th().bid_bar)),
             Span::raw(" "),
-            Span::styled(center(&fmt::commas(l.price), 9), fg(th().bid)),
+            Span::styled(center(&fmt::commas(p), 9), px_style),
         ]));
     }
-    // Footer line inside the panel if room remains.
+    let last_style = match app.last_px_flash(sid) {
+        Some((buy, age)) => Style::default().fg(if buy { th().bid } else { th().ask }).bg(blend(
+            th().bg,
+            if buy { th().bid_bar_solid } else { th().ask_bar_solid },
+            age,
+        )),
+        None => fg(sym.last_trade.map(|t| if t.aggressor_buy { th().bid } else { th().ask }).unwrap_or(th().dim)),
+    };
     let footer = Line::from(vec![
         Span::styled(" LAST ", dim()),
         Span::styled(
             sym.last_trade
                 .map(|t| format!("{} × {}", fmt::commas(t.price), fmt::commas(t.qty as u64)))
                 .unwrap_or_else(|| "—".into()),
-            fg(sym.last_trade.map(|t| if t.aggressor_buy { th().bid } else { th().ask }).unwrap_or(th().dim)),
+            last_style,
         ),
         Span::styled("  VOL ", dim()),
         Span::styled(fmt::commas(sym.volume), fg(th().text)),
@@ -415,7 +511,7 @@ pub fn interval_label(i: usize) -> String {
 }
 
 pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
-    let Some(sym) = app.current_symbol() else { return };
+    let Some(sym) = app.fast.symbols.get(app.sym_idx) else { return };
     let bars_all = &sym.bars[app.interval_idx];
     let last = bars_all.last();
     let vwap = sym.session.vwap();
@@ -511,7 +607,7 @@ pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
 }
 
 pub fn draw_volume(f: &mut Frame, app: &App, area: Rect) {
-    let Some(sym) = app.current_symbol() else { return };
+    let Some(sym) = app.fast.symbols.get(app.sym_idx) else { return };
     let block =
         Block::default().borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM).border_style(fg(th().border));
     let inner = block.inner(area);
@@ -663,23 +759,59 @@ pub fn draw_event_log(f: &mut Frame, app: &App, area: Rect) {
 
 // ------------------------------------------------------------ tape
 
+/// Consecutive fills on the same side within 200 µs are one sweep: print
+/// one line with the total size and the number of prints.
 pub fn draw_tape(f: &mut Frame, app: &App, area: Rect) {
-    let inner = panel(f, area, "TIME & SALES", "match · px · qty · aggr");
-    let Some(sym) = app.current_symbol() else { return };
+    let inner = panel(f, area, "TIME & SALES", "sweeps grouped · px · qty · n");
+    let Some(sym) = app.fast.symbols.get(app.sym_idx) else { return };
     let rows = inner.height as usize;
+    struct Row {
+        ts: u64,
+        px_lo: u64,
+        px_hi: u64,
+        qty: u64,
+        n: u32,
+        buy: bool,
+    }
+    let mut groups: Vec<Row> = Vec::new();
+    for t in sym.tape.iter() {
+        match groups.last_mut() {
+            Some(g) if g.buy == t.aggressor_buy && t.ts_ns.saturating_sub(g.ts) <= 200_000 => {
+                g.qty += t.qty as u64;
+                g.n += 1;
+                g.px_lo = g.px_lo.min(t.price);
+                g.px_hi = g.px_hi.max(t.price);
+                g.ts = t.ts_ns;
+            }
+            _ => groups.push(Row {
+                ts: t.ts_ns,
+                px_lo: t.price,
+                px_hi: t.price,
+                qty: t.qty as u64,
+                n: 1,
+                buy: t.aggressor_buy,
+            }),
+        }
+    }
     let mut lines = Vec::with_capacity(rows);
-    for t in sym.tape.iter().rev().take(rows) {
-        let c = if t.aggressor_buy { th().bid } else { th().ask };
+    for g in groups.iter().rev().take(rows) {
+        let c = if g.buy { th().bid } else { th().ask };
+        let px = if g.px_lo == g.px_hi {
+            fmt::commas(g.px_lo)
+        } else {
+            format!("{}–{}", fmt::commas(g.px_lo), fmt::commas(g.px_hi))
+        };
+        let big = g.qty >= 2000 || g.n >= 4;
         lines.push(Line::from(vec![
-            Span::styled(fmt::time_ms(t.ts_ns), dim()),
+            Span::styled(fmt::time_ms(g.ts), dim()),
             Span::raw(" "),
-            Span::styled(pad_right(&fmt::short_id(t.match_id), 9), dim()),
+            Span::styled(pad_left(&px, 13), if big { bold(c) } else { fg(c) }),
             Span::raw(" "),
-            Span::styled(pad_left(&fmt::commas(t.price), 8), fg(c)),
+            Span::styled(pad_left(&fmt::commas(g.qty), 7), if big { bold(th().text_bright) } else { fg(th().text) }),
             Span::raw(" "),
-            Span::styled(pad_left(&fmt::commas(t.qty as u64), 7), fg(th().text)),
-            Span::raw("  "),
-            Span::styled(if t.aggressor_buy { "BUY ▲" } else { "SELL ▼" }, fg(c)),
+            Span::styled(if g.n > 1 { format!("×{:<3}", g.n) } else { "    ".into() }, dim()),
+            Span::styled(if g.buy { "BUY ▲" } else { "SELL ▼" }, fg(c)),
+            Span::styled(if g.n >= 4 { " sweep" } else { "" }, bold(th().amber)),
         ]));
     }
     f.render_widget(Paragraph::new(lines), inner);

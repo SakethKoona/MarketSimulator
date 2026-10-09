@@ -139,7 +139,10 @@ void BoeServer::run() {
                 ev |= POLLOUT;
             pfds.push_back({s.fd, ev, 0});
         }
-        int n = ::poll(pfds.data(), pfds.size(), static_cast<int>(cfg_.poll_ms));
+        // While requests are outstanding, spin so their reports go out the
+        // moment the engine produces them; idle, sleep up to poll_ms.
+        const int timeout = pending_.empty() ? static_cast<int>(cfg_.poll_ms) : 0;
+        int n = ::poll(pfds.data(), pfds.size(), timeout);
         if (n > 0) {
             if (pfds[0].revents & POLLIN)
                 accept_new();

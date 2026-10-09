@@ -149,6 +149,8 @@ mod render_tests {
         let mut app = App::new(client, true);
         app.tick();
         assert_eq!(app.snap.symbols.len(), 3);
+        assert_eq!(app.fast.symbols.len(), 3, "fast copy refreshed on first tick");
+        assert_eq!(app.slow.symbols.len(), 3, "slow copy refreshed on first tick");
         for (w, h) in [(200u16, 55u16), (140, 40), (100, 30), (60, 20)] {
             let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
             app.inspect = false;
@@ -156,10 +158,10 @@ mod render_tests {
             app.screen = app::Screen::Market;
             for iv in 0..feed_client::INTERVALS.len() {
                 app.interval_idx = iv;
-                term.draw(|f| ui::draw(f, &app)).unwrap();
+                term.draw(|f| ui::draw(f, &mut app)).unwrap();
             }
             app.interval_idx = 0;
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             if w == 200 {
                 dump(&term, "market_200x55");
             }
@@ -167,29 +169,29 @@ mod render_tests {
                 dump(&term, "market_140x40");
             }
             app.screen = app::Screen::Events;
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             if w == 200 {
                 dump(&term, "events_200x55");
             }
             if w == 140 {
                 dump(&term, "events_140x40");
             }
-            term.draw(|f| ui::draw_classic(f, &app)).unwrap();
+            term.draw(|f| ui::draw_classic(f, &mut app)).unwrap();
             // Select an execution and open the inspector.
             let e = app.snap.events.iter().rev().find(|e| e.ty == b'E' && e.applied.known).copied().unwrap();
             app.selected = Some(e.seq);
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             if w == 200 {
                 dump(&term, "events_selected_200x55");
             }
             app.follow = Some(e.order_id);
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             if w == 200 {
                 dump(&term, "events_follow_200x55");
             }
             app.follow = None;
             app.inspect = true;
-            term.draw(|f| inspect::draw(f, &app)).unwrap();
+            term.draw(|f| inspect::draw(f, &mut app)).unwrap();
             if w == 200 {
                 dump(&term, "inspect_200x55");
             }
@@ -200,7 +202,7 @@ mod render_tests {
             for ty in [b'A', b'X', b'D', b'U', b'R', b'S'] {
                 if let Some(e) = app.snap.events.iter().rev().find(|e| e.ty == ty).copied() {
                     app.selected = Some(e.seq);
-                    term.draw(|f| inspect::draw(f, &app)).unwrap();
+                    term.draw(|f| inspect::draw(f, &mut app)).unwrap();
                 }
             }
         }
@@ -209,11 +211,11 @@ mod render_tests {
             theme::set(i);
             let mut term = Terminal::new(TestBackend::new(200, 55)).unwrap();
             app.screen = app::Screen::Market;
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             app.screen = app::Screen::Events;
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             app.open_theme_picker();
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             if i == 0 {
                 dump(&term, "picker_200x55");
             }
@@ -231,7 +233,7 @@ mod render_tests {
             }
             assert_eq!(app.picker.as_ref().unwrap().current().unwrap().label, "kanagawa");
             let mut term = Terminal::new(TestBackend::new(200, 55)).unwrap();
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             dump(&term, "picker_typed_200x55");
             app.on_key(key(KeyCode::Enter));
             assert_eq!(theme::th().name, "kanagawa");
@@ -247,7 +249,7 @@ mod render_tests {
             for c in "nv".chars() {
                 app.on_key(key(KeyCode::Char(c)));
             }
-            term.draw(|f| ui::draw(f, &app)).unwrap();
+            term.draw(|f| ui::draw(f, &mut app)).unwrap();
             dump(&term, "symbol_picker_200x55");
             app.on_key(key(KeyCode::Enter));
             assert_eq!(app.current_symbol().unwrap().ticker, "NVDA");
@@ -287,7 +289,7 @@ mod render_tests {
             app.on_key(key(c));
         }
         let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
-        term.draw(|f| ui::draw(f, &app)).unwrap();
+        term.draw(|f| ui::draw(f, &mut app)).unwrap();
     }
 }
 
@@ -315,9 +317,9 @@ fn run_tui(terminal: &mut ratatui::DefaultTerminal, client: FeedClient, args: &A
         execute!(io::stdout(), BeginSynchronizedUpdate)?;
         terminal.draw(|f| {
             if app.inspect {
-                inspect::draw(f, &app);
+                inspect::draw(f, &mut app);
             } else {
-                ui::draw(f, &app);
+                ui::draw(f, &mut app);
             }
         })?;
         execute!(io::stdout(), EndSynchronizedUpdate)?;

@@ -20,6 +20,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <netdb.h>
@@ -73,6 +74,36 @@ class Session {
   public:
     Session(int idx, const Config &cfg, Totals &tot) : idx_(idx), cfg_(cfg), tot_(tot), rng_(cfg.seed * 7919 + idx) {
         mid_.assign(cfg.symbols.size(), 10000);
+        // Each symbol gets its own fundamental and volatility so the
+        // monitor shows a spread of behaviours rather than one clock.
+        for (std::size_t i = 0; i < cfg.symbols.size(); ++i) {
+            std::uint64_t base = 2000 + (hash(cfg.symbols[i]) % 60) * 500; // 2,000 .. 31,500
+            fund_.push_back(static_cast<double>(base));
+            mid_[i] = base;
+            vol_.push_back(0.0004 + (hash(cfg.symbols[i] + "v") % 10) * 0.0002);
+            trend_.push_back(0.0);
+        }
+        regime_until_ = mono_ns();
+    }
+
+    static std::uint64_t hash(const std::string &s) {
+        std::uint64_t h = 1469598103934665603ull;
+        for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
+        return h;
+    }
+
+    // Activity multiplier: a sticky regime (quiet / normal / burst) per
+    // session with exponential holding times, so the tape breathes.
+    double activity() {
+        const std::uint64_t now = mono_ns();
+        if (now >= regime_until_) {
+            unsigned r = rng_() % 100;
+            activity_ = r < 25 ? 0.4 : r < 85 ? 1.0 : 4.0;
+            double mean_s = activity_ > 1.5 ? 1.5 : activity_ < 0.5 ? 6.0 : 10.0;
+            std::exponential_distribution<double> ex(1.0 / mean_s);
+            regime_until_ = now + static_cast<std::uint64_t>(ex(rng_) * 1e9) + 200'000'000ull;
+        }
+        return activity_;
     }
 
     void run() {
@@ -83,6 +114,8 @@ class Session {
         const std::uint64_t start = mono_ns();
         std::uint64_t last_hb = start;
         std::uint64_t sent = 0;
+        last_now_ = start;
+        (void)start;
         char rx[1 << 16];
         std::string rxbuf;
         while (!g_stop && !dead_) {
@@ -90,11 +123,15 @@ class Session {
             // Send everything that is due, in one write, bounded burst.
             if (ns_per_order > 0) {
                 int burst = 0;
-                while (sent * ns_per_order <= double(now - start) && burst < 128) {
+                const double pace = ns_per_order / activity();
+                while (budget_ns_ <= 0.0 && burst < 128) {
                     step();
                     ++sent;
                     ++burst;
+                    budget_ns_ += pace;
                 }
+                budget_ns_ -= double(now - last_now_);
+                last_now_ = now;
             }
             if (now - last_hb >= 1'000'000'000ULL) {
                 frame(boe::MsgType::ClientHeartbeat, nullptr, 0, false);
@@ -104,11 +141,8 @@ class Session {
             // Wait for input until the next order is due.
             int timeout_ms = 0;
             if (ns_per_order > 0) {
-                double next = start + (sent * ns_per_order);
-                double wait = next - double(mono_ns());
-                timeout_ms = wait > 0 ? std::max(1, int(wait / 1e6)) : 0;
-                if (wait > 0 && wait < 1e6)
-                    timeout_ms = 0;
+                double wait = budget_ns_;
+                timeout_ms = wait > 1e6 ? std::min(50, int(wait / 1e6)) : 0;
             } else {
                 timeout_ms = 100;
             }
@@ -249,39 +283,68 @@ class Session {
         tot_.outstanding.fetch_add(1, std::memory_order_relaxed);
     }
 
+    // Geometric offset from the touch: most passive orders sit within a few
+    // ticks of the mid, a tail rests deeper.
+    std::uint64_t offset() {
+        std::uint64_t k = 1;
+        while (k < 40 && rng_() % 100 < 62)
+            ++k;
+        return k;
+    }
+    // Lognormal-ish round-lot sizes: lots of 100s, a tail of blocks.
+    std::uint32_t size(double scale) {
+        std::normal_distribution<double> n(4.0, 0.9); // e^4 ≈ 55
+        double v = std::exp(n(rng_)) * scale;
+        std::uint32_t q = static_cast<std::uint32_t>(std::max(1.0, std::min(20000.0, v)));
+        return q >= 100 ? (q / 100) * 100 : q;
+    }
+
     void step() {
         std::size_t si = rng_() % cfg_.symbols.size();
         std::uint64_t &mid = mid_[si];
-        if (rng_() % 20 == 0)
-            mid += (rng_() % 3) - 1;
+        // Fundamental: mean-reverting walk with rare jumps; the mid drifts
+        // toward it, and fills (see on_report) anchor the mid to prints.
+        double &f = fund_[si];
+        std::normal_distribution<double> z(0.0, 1.0);
+        f += f * vol_[si] * z(rng_) * 0.3;
+        if (rng_() % 4000 == 0)
+            f *= 1.0 + (rng_() % 2 ? 1 : -1) * (0.004 + (rng_() % 10) * 0.001); // news
+        double gap = f - static_cast<double>(mid);
+        if (std::fabs(gap) > 1.0 && rng_() % 3 == 0)
+            mid = static_cast<std::uint64_t>(std::max(10.0, static_cast<double>(mid) + (gap > 0 ? 1 : -1)));
+        trend_[si] = 0.9 * trend_[si] + 0.1 * (gap > 0 ? 1.0 : gap < 0 ? -1.0 : 0.0);
+
         unsigned r = rng_() % 100;
-        if (r < 55) {
+        if (r < 52) { // passive limit near the touch
             std::uint8_t side = (rng_() % 2) ? boe::side::Buy : boe::side::Sell;
-            std::uint64_t off = 1 + rng_() % 15;
-            std::uint64_t px = side == boe::side::Buy ? mid - off : mid + off;
-            send_new(si, side, 1 + rng_() % 500, px, boe::tif::GTC);
-        } else if (r < 80 && !live_vec_.empty()) {
+            std::uint64_t off = offset();
+            std::uint64_t px = side == boe::side::Buy ? (mid > off ? mid - off : 1) : mid + off;
+            send_new(si, side, size(1.0), px, boe::tif::GTC);
+        } else if (r < 78 && !live_vec_.empty()) { // cancel
             const std::string &cl = live_vec_[rng_() % live_vec_.size()];
             boe::CancelOrder c{};
             std::memcpy(c.orig_cl_ord_id, cl.data(), 20);
             frame(boe::MsgType::CancelOrder, &c, sizeof(c), true);
             tot_.sent.fetch_add(1, std::memory_order_relaxed);
-        } else if (r < 90 && !live_vec_.empty()) {
+        } else if (r < 86 && !live_vec_.empty()) { // reduce
             const std::string &cl = live_vec_[rng_() % live_vec_.size()];
             auto it = live_.find(cl);
             if (it != live_.end() && it->second.leaves > 1) {
                 boe::ModifyOrder m{};
-                std::memcpy(m.cl_ord_id, cl.data(), 20); // same id: shrink keeps priority
+                std::memcpy(m.cl_ord_id, cl.data(), 20);
                 std::memcpy(m.orig_cl_ord_id, cl.data(), 20);
                 m.qty = 1 + rng_() % it->second.leaves;
                 m.price = 0;
                 frame(boe::MsgType::ModifyOrder, &m, sizeof(m), true);
                 tot_.sent.fetch_add(1, std::memory_order_relaxed);
             }
-        } else {
-            std::uint8_t side = (rng_() % 2) ? boe::side::Buy : boe::side::Sell;
-            std::uint64_t px = side == boe::side::Buy ? mid + 20 : (mid > 20 ? mid - 20 : 1);
-            send_new(si, side, 1 + rng_() % 800, px, boe::tif::IOC);
+        } else { // aggressive: momentum-biased, occasionally a sweep
+            double p_buy = 0.5 + 0.25 * trend_[si];
+            std::uint8_t side = (rng_() % 1000 < p_buy * 1000) ? boe::side::Buy : boe::side::Sell;
+            bool sweep = rng_() % 400 == 0;
+            std::uint64_t reach = sweep ? 15 : 1 + rng_() % 3;
+            std::uint64_t px = side == boe::side::Buy ? mid + reach : (mid > reach ? mid - reach : 1);
+            send_new(si, side, size(sweep ? 12.0 : 1.4), px, boe::tif::IOC);
         }
         if (live_vec_.size() > 5000) { // keep the book bounded per session
             const std::string cl = live_vec_[rng_() % live_vec_.size()];
@@ -428,6 +491,11 @@ class Session {
     std::uint64_t cl_seq_ = 1;
     std::string tx_;
     std::vector<std::uint64_t> mid_;
+    std::vector<double> fund_, vol_, trend_;
+    double activity_ = 1.0;
+    std::uint64_t regime_until_ = 0;
+    double budget_ns_ = 0.0;
+    std::uint64_t last_now_ = 0;
     std::unordered_map<std::string, Pending> pending_;
     std::unordered_map<std::string, Live> live_;
     std::vector<std::string> live_vec_;

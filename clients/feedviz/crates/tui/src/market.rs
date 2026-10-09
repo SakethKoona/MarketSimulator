@@ -16,7 +16,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     f.render_widget(Block::default().style(crate::theme::base()), area);
     let [hdr, body, foot] =
@@ -243,8 +243,8 @@ fn tiles_per_row(width: u16) -> usize {
 }
 
 fn draw_tiles(f: &mut Frame, app: &App, area: Rect) {
-    let inner = panel(f, area, "INDICATORS · session", "value · change · last 60s");
-    let Some(sym) = app.current_symbol() else { return };
+    let inner = panel(f, area, "INDICATORS · session", "1 Hz · value · change · last 60s");
+    let Some(sym) = app.slow.symbols.get(app.sym_idx) else { return };
     let tiles = tiles_for(sym, app.depth().min(sym.bids.len().max(sym.asks.len()).max(1)));
     let per_row = tiles_per_row(inner.width);
     let tile_w = (inner.width as usize / per_row).max(12);
@@ -277,7 +277,7 @@ fn draw_tiles(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_flow(f: &mut Frame, app: &App, area: Rect) {
     let inner = panel(f, area, "FLOW · per second", "last 90s");
-    let Some(sym) = app.current_symbol() else { return };
+    let Some(sym) = app.slow.symbols.get(app.sym_idx) else { return };
     let flow = last_n(&sym.flow, 90);
     let col_w = inner.width / 3;
     let cols = [
@@ -396,7 +396,7 @@ fn bar_chart(f: &mut Frame, area: Rect, title: &str, value: &str, series: &[(&[u
 // ------------------------------------------------------------ monitor
 
 fn draw_monitor(f: &mut Frame, app: &App, area: Rect) {
-    let inner = panel(f, area, "SYMBOL MONITOR", "all symbols");
+    let inner = panel(f, area, "SYMBOL MONITOR", "1 Hz · all symbols");
     let w = inner.width as usize;
     let wide = w >= 62;
     let head = if wide {
@@ -422,11 +422,19 @@ fn draw_monitor(f: &mut Frame, app: &App, area: Rect) {
         )
     };
     let mut lines = vec![Line::from(Span::styled(pad_right(&head, w), dim()))];
-    for (i, s) in app.snap.symbols.iter().enumerate() {
+    for (i, s) in app.slow.symbols.iter().enumerate() {
         let st = &s.session;
         let chg = st.last as i64 - st.open as i64;
         let c = if chg >= 0 { th().bid } else { th().ask };
         let bg = if i == app.sym_idx { th().select_bg } else { th().bg };
+        let last_style = match app.last_px_flash(s.symbol_id) {
+            Some((buy, age)) => Style::default().fg(th().text_bright).bg(blend_bg(
+                bg,
+                if buy { th().bid_bar_solid } else { th().ask_bar_solid },
+                age,
+            )),
+            None => Style::default().fg(th().text).bg(bg),
+        };
         let st_ = |col: Color| Style::default().fg(col).bg(bg);
         let closes: Vec<u64> = s.bars[0].iter().rev().take(8).rev().map(|b| b.close).collect();
         let min = closes.iter().copied().min().unwrap_or(0);
@@ -436,7 +444,7 @@ fn draw_monitor(f: &mut Frame, app: &App, area: Rect) {
                 pad_right(&sym_name(s), 6),
                 if i == app.sym_idx { bold(th().amber_bright).bg(bg) } else { st_(th().text) },
             ),
-            Span::styled(format!(" {}", pad_left(&fmt::commas(st.last), 8)), st_(th().text)),
+            Span::styled(format!(" {}", pad_left(&fmt::commas(st.last), 8)), last_style),
             Span::styled(format!(" {}", pad_left(&format!("{chg:+}"), 6)), st_(c)),
         ];
         if wide {
@@ -463,6 +471,16 @@ fn draw_monitor(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(spans));
     }
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn blend_bg(base: Color, flash: Color, age: f32) -> Color {
+    let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (base, flash) else { return base };
+    let k = (1.0 - age.clamp(0.0, 1.0)) * 0.55;
+    Color::Rgb(
+        (r1 as f32 + (r2 as f32 - r1 as f32) * k) as u8,
+        (g1 as f32 + (g2 as f32 - g1 as f32) * k) as u8,
+        (b1 as f32 + (b2 as f32 - b1 as f32) * k) as u8,
+    )
 }
 
 // ------------------------------------------------------------ health strip

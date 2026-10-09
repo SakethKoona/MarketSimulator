@@ -85,8 +85,8 @@ Working: engine, sharding, feed with retransmission and snapshot servers,
 BOE and JSON-lines ingress, the ingress plugin API, flowgen, feedviz with
 all three screens and gap recovery, captures and replay.
 
-Not yet: realistic order-flow profiles beyond rate presets, the TUI
-conflation pass, the agent environment and ABIDES bridge.
+Not yet: the agent environment and ABIDES bridge; a Python client SDK;
+Linux has only been exercised in CI.
 
 If you installed the `mktsim` CLI before the `engine/` rename, rerun
 `make install` from `engine/` to refresh the symlink.

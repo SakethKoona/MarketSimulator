@@ -32,12 +32,18 @@ length + raw MoldUDP64 packet) and, at shutdown, writes `FILE.books.txt`
 with the final levels (`symbol_id side price qty count`). Captures are the
 replay and golden-test input for `clients/feedviz`.
 
-`flowgen` opens N BOE sessions, each on its own thread, and drives the
-order mix (55% passive limits around a random-walk mid anchored to its own
-fills, 25% cancels, 10% quantity reductions, 10% crossing IOCs) at an
-aggregate `--rate`, tracking every order through acknowledgments,
-executions, modifies and cancels. Flags: `--host`, `--port`, `--sessions`,
-`--rate`, `--seconds`, `--symbols AAPL,GOOG,NVDA`, `--seed`, `--quiet`. It
+`flowgen` opens N BOE sessions, each on its own thread, and drives a
+market-like mix: each symbol has a mean-reverting fundamental with rare
+jumps and its own volatility; passive limits sit mostly within a few
+ticks of the mid (geometric offsets) with round-lot, fat-tailed sizes;
+cancels and reductions churn the book; aggressive IOCs lean with the
+recent trend and occasionally sweep several levels; and each session
+moves through quiet / normal / burst regimes with sticky durations, so
+the rate breathes. Fills anchor each session's mid to real prints.
+`--profile calm` is 20 orders/s per symbol, `busy` 100, `load` 20k total;
+`--rate` overrides. Flags: `--host`, `--port`, `--sessions`, `--profile`,
+`--rate`, `--seconds`, `--symbols A,B` or `--config FILE` (default: the
+exchange config's symbols), `--seed`, `--quiet`. It
 prints one line per second: sent, acked, rejected, busy (gateway ring
 full), executions, cancels, modifies, live orders, and ack round-trip
 latency p50/p99/max. Measured on one laptop over loopback with 3 shards:

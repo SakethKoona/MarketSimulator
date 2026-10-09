@@ -30,7 +30,7 @@ fn pad_right(s: &str, w: usize) -> String {
     }
 }
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     f.render_widget(ratatui::widgets::Block::default().style(crate::theme::base()), area);
     let Some(e) = app.selected_event() else { return };

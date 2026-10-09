@@ -3,8 +3,12 @@
 
 use crate::picker::{Item, Picker, PickerKind};
 use feed_client::{EventRecord, FeedClient, Snapshot};
-use std::collections::VecDeque;
-use std::time::Instant;
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
+
+/// How long a changed cell stays highlighted.
+pub const FLASH: Duration = Duration::from_millis(600);
+pub const GROUPS: [u64; 4] = [1, 2, 5, 10];
 
 pub const DEPTHS: [usize; 4] = [10, 14, 20, 40];
 
@@ -19,7 +23,21 @@ pub const TYPE_KEYS: [u8; 5] = [b'A', b'E', b'X', b'D', b'U'];
 
 pub struct App {
     pub client: FeedClient,
+    /// Latest snapshot (EVENTS screen, inspector): refreshed every frame.
     pub snap: Snapshot,
+    /// Conflated copy for the ladder and tape: 8 Hz.
+    pub fast: Snapshot,
+    /// Conflated copy for indicators, flow and monitor: 1 Hz.
+    pub slow: Snapshot,
+    last_fast: Instant,
+    last_slow: Instant,
+    /// (symbol, side, price) -> (qty when last seen, when it changed).
+    pub flash: HashMap<(u32, u8, u64), (u64, Instant)>,
+    /// Last-trade price per symbol, for monitor flashes.
+    pub last_px: HashMap<u32, (u64, Instant, bool)>,
+    /// Ladder anchor price per symbol (centre row); None = follow mid.
+    pub anchor: HashMap<u32, u64>,
+    pub group_idx: usize,
     pub screen: Screen,
     pub interval_idx: usize,
     pub type_mask: u8,
@@ -46,8 +64,16 @@ impl App {
         App {
             client,
             snap: Snapshot::default(),
+            fast: Snapshot::default(),
+            slow: Snapshot::default(),
+            last_fast: Instant::now() - Duration::from_secs(1),
+            last_slow: Instant::now() - Duration::from_secs(1),
+            flash: HashMap::new(),
+            last_px: HashMap::new(),
+            anchor: HashMap::new(),
+            group_idx: 0,
             screen: Screen::Market,
-            interval_idx: 0,
+            interval_idx: 1, // 5s candles by default; 1s is noise live
             type_mask: 0b11111,
             follow: None,
             picker: None,
@@ -70,7 +96,13 @@ impl App {
         DEPTHS[self.depth_idx]
     }
 
-    /// Pulls the newest snapshot unless paused.
+    pub fn group(&self) -> u64 {
+        GROUPS[self.group_idx]
+    }
+
+    /// Pulls the newest snapshot unless paused, and refreshes the
+    /// conflated copies on their own cadences. Rendering cost follows
+    /// frame rate; what the eye sees follows these cadences.
     pub fn tick(&mut self) {
         if self.paused {
             return;
@@ -81,6 +113,71 @@ impl App {
         }
         if self.sym_idx >= self.snap.symbols.len() {
             self.sym_idx = 0;
+        }
+        let now = Instant::now();
+        if now - self.last_fast >= Duration::from_millis(125) {
+            self.last_fast = now;
+            self.note_changes(now);
+            self.fast = self.snap.clone();
+        }
+        if now - self.last_slow >= Duration::from_secs(1) {
+            self.last_slow = now;
+            self.slow = self.snap.clone();
+        }
+    }
+
+    /// Records which ladder levels and last prices changed since the
+    /// previous fast refresh, so the renderer can flash them.
+    fn note_changes(&mut self, now: Instant) {
+        let Some(sym) = self.snap.symbols.get(self.sym_idx) else { return };
+        let sid = sym.symbol_id;
+        for (side, levels) in [(b'B', &sym.bids), (b'S', &sym.asks)] {
+            for l in levels {
+                let key = (sid, side, l.price);
+                match self.flash.get_mut(&key) {
+                    Some((q, t)) => {
+                        if *q != l.qty {
+                            *q = l.qty;
+                            *t = now;
+                        }
+                    }
+                    None => {
+                        self.flash.insert(key, (l.qty, now));
+                    }
+                }
+            }
+        }
+        if self.flash.len() > 4096 {
+            self.flash.retain(|_, (_, t)| now - *t < FLASH);
+        }
+        for s in &self.snap.symbols {
+            if let Some(t) = s.last_trade {
+                let e = self.last_px.entry(s.symbol_id).or_insert((t.price, now - FLASH, t.aggressor_buy));
+                if e.0 != t.price {
+                    *e = (t.price, now, t.aggressor_buy);
+                }
+            }
+        }
+    }
+
+    /// 0.0 (fresh) .. 1.0 (faded) for a ladder cell, or None if unchanged.
+    pub fn flash_age(&self, sym: u32, side: u8, price: u64) -> Option<f32> {
+        let (_, t) = self.flash.get(&(sym, side, price))?;
+        let age = t.elapsed();
+        if age >= FLASH {
+            None
+        } else {
+            Some(age.as_secs_f32() / FLASH.as_secs_f32())
+        }
+    }
+
+    pub fn last_px_flash(&self, sym: u32) -> Option<(bool, f32)> {
+        let (_, t, buy) = self.last_px.get(&sym)?;
+        let age = t.elapsed();
+        if age >= FLASH {
+            None
+        } else {
+            Some((*buy, age.as_secs_f32() / FLASH.as_secs_f32()))
         }
     }
 
@@ -325,6 +422,13 @@ impl App {
                 }
             }
             KeyCode::Char('d') => self.depth_idx = (self.depth_idx + 1) % DEPTHS.len(),
+            KeyCode::Char('g') => self.group_idx = (self.group_idx + 1) % GROUPS.len(),
+            KeyCode::Char('c') => {
+                // Re-centre the ladder on the current mid.
+                if let Some(id) = self.current_symbol().map(|s| s.symbol_id) {
+                    self.anchor.remove(&id);
+                }
+            }
             KeyCode::Char('f') => self.filter_sym = !self.filter_sym,
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
