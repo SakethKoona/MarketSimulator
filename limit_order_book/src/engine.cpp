@@ -172,15 +172,18 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id,
             // Resting order fully consumed: remove it from the book
             book.CancelOrder(resting.orderId);
             orders_.erase(resting.orderId);
-            sink_.emit_cancel_event(sym_id, resting.orderId, seq,
-                                    resting.side, resting.price);
         } else {
             // Resting order partially consumed: shrink it in place
             book.ModifyOrder(resting.orderId, resting_remaining);
-            sink_.emit_execute_event(sym_id, resting.orderId, seq,
-                                     resting.side, resting.price,
-                                     resting_remaining);
         }
+
+        // Every match is exactly one Execute for the resting side paired
+        // with one TradeFill on the same book_seq. Execute with
+        // remaining 0 means the order left the book; no Delete follows.
+        // Delete is reserved for owner cancels and replaces that rest
+        // nothing.
+        sink_.emit_execute_event(sym_id, resting.orderId, seq, resting.side,
+                                 resting.price, resting_remaining);
 
         // Trade always executes at the resting price
         sink_.emit_trade_event(sym_id, nextTradeId(), incoming.orderId,

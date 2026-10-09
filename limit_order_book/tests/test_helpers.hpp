@@ -51,10 +51,17 @@ struct ClientBook {
                         orders[e.order_id] = {e.side, e.price, e.qty};
                         break;
                     case BookAction::Modify:
+                        REQUIRE(orders.count(e.order_id));
+                        EXPECT(e.qty > 0 && e.qty < orders[e.order_id].qty);
+                        orders[e.order_id].qty = e.qty;
+                        break;
                     case BookAction::Execute:
                         REQUIRE(orders.count(e.order_id));
                         EXPECT(e.qty < orders[e.order_id].qty);
-                        orders[e.order_id].qty = e.qty;
+                        if (e.qty == 0)
+                            orders.erase(e.order_id);
+                        else
+                            orders[e.order_id].qty = e.qty;
                         break;
                     case BookAction::Delete:
                         EXPECT(orders.count(e.order_id));

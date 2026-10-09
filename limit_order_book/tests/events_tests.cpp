@@ -42,8 +42,13 @@ TEST(events_trade_pairs_with_execute_or_delete) {
     EXPECT_EQ(count_trades(evs), 2);
     auto acts = actions(evs);
     REQUIRE(acts.size() == 2u);
-    EXPECT_EQ((int)acts[0], (int)BookAction::Delete);  // 6 fully consumed
+    EXPECT_EQ((int)acts[0], (int)BookAction::Execute); // 6 -> 0, left book
     EXPECT_EQ((int)acts[1], (int)BookAction::Execute); // 2 -> 1
+    {
+        auto *first = std::get_if<OrderBookEvent>(&evs[0]);
+        REQUIRE(first != nullptr);
+        EXPECT_EQ(first->qty, 0u);
+    }
 
     // Each trade shares book_seq with the book event just before it
     for (std::size_t i = 1; i < evs.size(); i++) {
@@ -91,11 +96,35 @@ TEST(events_replace_fully_filled_publishes_delete) {
     EXPECT_EQ(count_trades(evs), 1);
     auto a = actions(evs);
     REQUIRE(a.size() == 2u);
-    EXPECT_EQ((int)a[0], (int)BookAction::Delete); // resting ask consumed
-    EXPECT_EQ((int)a[1], (int)BookAction::Delete); // replaced bid fully filled
+    EXPECT_EQ((int)a[0], (int)BookAction::Execute); // resting ask -> 0
+    EXPECT_EQ((int)a[1], (int)BookAction::Delete);  // replaced bid fully filled
     for (auto &e : evs)
         cb.apply(e);
     EXPECT(cb.orders.empty());
+}
+
+TEST(events_every_match_is_one_execute_and_one_trade) {
+    Exchange ex = make_exchange();
+    ex.SubmitOrder("AAPL", 100, 2, Side::Sell);
+    ex.SubmitOrder("AAPL", 101, 2, Side::Sell);
+    ex.SubmitOrder("AAPL", 102, 5, Side::Sell);
+    drain(ex);
+    ex.SubmitOrder("AAPL", 102, 6, Side::Buy); // three matches
+    auto evs = drain(ex);
+    REQUIRE(evs.size() == 6u);
+    for (std::size_t i = 0; i < evs.size(); i += 2) {
+        auto *b = std::get_if<OrderBookEvent>(&evs[i]);
+        auto *t = std::get_if<TradeFillEvent>(&evs[i + 1]);
+        REQUIRE(b != nullptr && t != nullptr);
+        EXPECT_EQ((int)b->action, (int)BookAction::Execute);
+        EXPECT_EQ(b->book_seq, t->book_seq);
+        EXPECT_EQ(b->order_id, t->resting_id);
+        EXPECT_EQ(b->price, t->price);
+    }
+    EXPECT_EQ(std::get<OrderBookEvent>(evs[4]).qty, 3u); // 5 -> 3
+    for (auto &e : evs)
+        if (auto *b = std::get_if<OrderBookEvent>(&e))
+            EXPECT((int)b->action != (int)BookAction::Delete);
 }
 
 TEST(events_sequence_is_monotonic) {

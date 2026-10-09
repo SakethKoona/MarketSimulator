@@ -13,7 +13,7 @@
 enum class BookAction : uint8_t {
     Add,     // order accepted onto the book
     Modify,  // resting qty reduced by the owner (not by a trade)
-    Execute, // resting qty reduced (or zeroed) by a match
+    Execute, // resting qty reduced by a match; qty 0 means it left the book
     Replace, // cancel/replace: same id, new price and/or qty
     Delete,  // order removed from the book
 };
