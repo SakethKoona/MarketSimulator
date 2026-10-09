@@ -132,6 +132,22 @@ $(CLI_TARGET): $(LIB_OBJECTS) $(CLI_OBJECTS)
 $(BUILD_DIR)/cli/%.o: $(CLI_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -I$(CLI_DIR) -I../gateway/include -MMD -MP -c $< -o $@
 
+# make install            symlinks bin/mktsim into $(INSTALL_DIR) (default ~/.local/bin)
+# make install INSTALL_DIR=/usr/local/bin
+INSTALL_DIR ?= $(HOME)/.local/bin
+
+install: cli
+	@mkdir -p $(INSTALL_DIR)
+	@ln -sf $(abspath $(CLI_TARGET)) $(INSTALL_DIR)/mktsim
+	@echo "Installed $(INSTALL_DIR)/mktsim -> $(abspath $(CLI_TARGET))"
+	@case ":$$PATH:" in *":$(INSTALL_DIR):"*) ;; *) \
+	  echo "Note: $(INSTALL_DIR) is not on your PATH. Add to ~/.zshrc:"; \
+	  echo '  export PATH="$(INSTALL_DIR):$$PATH"';; esac
+
+uninstall:
+	@rm -f $(INSTALL_DIR)/mktsim
+	@echo "Removed $(INSTALL_DIR)/mktsim"
+
 cli-test: cli
 	@for f in $(CLI_DIR)/scenarios/*.txt; do \
 	  printf '%s: ' $$f; \
@@ -155,4 +171,4 @@ clear:
 	rm -rf $(LOG_DIR)
 	@echo "Cleared all logs"
 
-.PHONY: all debug clean run rebuild directories clear test bench cli cli-test
+.PHONY: all debug clean run rebuild directories clear test bench cli cli-test install uninstall

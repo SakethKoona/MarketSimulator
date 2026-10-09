@@ -5,15 +5,19 @@ modes:
 
 ```
 make cli                                   # builds bin/mktsim
-bin/mktsim shell [config.json]             # interactive, in-process exchange
-bin/mktsim run SCRIPT|- [config.json]      # script, in-process, exit 1 on failure
-bin/mktsim connect [host:port] [SCRIPT|-]  # same commands over BOE to exchange_server
-bin/mktsim tui [feedviz args]              # open the feed TUI (clients/feedviz)
+make install                               # symlinks it to ~/.local/bin/mktsim
+mktsim shell [config.json]                 # interactive, in-process exchange
+mktsim run SCRIPT|- [config.json]      # script, in-process, exit 1 on failure
+mktsim connect [host:port] [SCRIPT|-]  # same commands over BOE to exchange_server
+mktsim tui [feedviz args]              # open the feed TUI (clients/feedviz)
 make cli-test                              # runs cli/scenarios/*.txt
 ```
 
-The config defaults to `configs/default.json` found relative to the working
-directory (also `../configs`, `../../configs`).
+`make install` puts a symlink in `~/.local/bin` (override with
+`INSTALL_DIR=/usr/local/bin`); after that `mktsim` works from any directory.
+The config defaults to `configs/default.json` relative to the working
+directory, falling back to the repo the binary was built in, so an installed
+`mktsim shell` finds it wherever you run it.
 
 ## Commands
 
@@ -61,7 +65,7 @@ and do nothing. Cancel and modify only work on orders this session placed.
 
 ```
 ./gateway/build/exchange_server configs/default.json --rate 5 &
-bin/mktsim connect 127.0.0.1:30000 cli/scenarios/remote/remote.txt
+mktsim connect 127.0.0.1:30000 cli/scenarios/remote/remote.txt
 ```
 
 **tui** hands off to the Rust feed viewer, `clients/feedviz`, which
@@ -73,8 +77,8 @@ passed through (`--replay FILE`, `--group`, `--port`, `--fps`, `--seconds`,
 
 ```
 ./gateway/build/exchange_server configs/default.json --rate 20000 &
-bin/mktsim tui
-bin/mktsim tui --replay ../clients/feedviz/testdata/capture.bin
+mktsim tui
+mktsim tui --replay ../clients/feedviz/testdata/capture.bin
 ```
 
 ## Scenarios

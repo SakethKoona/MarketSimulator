@@ -30,24 +30,6 @@ static int usage() {
     return 2;
 }
 
-static json load_cfg(const char *path) {
-    std::vector<std::string> candidates;
-    if (path)
-        candidates.push_back(path);
-    else
-        candidates = {"configs/default.json", "../configs/default.json",
-                      "../../configs/default.json"};
-    for (const auto &p : candidates) {
-        std::ifstream f(p);
-        if (f)
-            return json::parse(f);
-    }
-    std::string msg = "config not found; tried:";
-    for (const auto &p : candidates)
-        msg += " " + p;
-    throw std::runtime_error(msg);
-}
-
 // Directory of this executable, or "" if unknown
 static std::filesystem::path self_dir() {
     std::string p;
@@ -67,6 +49,33 @@ static std::filesystem::path self_dir() {
     std::error_code ec;
     auto canon = std::filesystem::weakly_canonical(p, ec);
     return (ec ? std::filesystem::path(p) : canon).parent_path();
+}
+
+static json load_cfg(const char *path) {
+    std::vector<std::string> candidates;
+    if (path) {
+        candidates.push_back(path);
+    } else {
+        // Relative to the working directory first, then to the repo this
+        // binary was built in (bin/mktsim -> limit_order_book -> root), so
+        // an installed symlink works from any directory.
+        candidates = {"configs/default.json", "../configs/default.json",
+                      "../../configs/default.json"};
+        std::filesystem::path here = self_dir();
+        if (!here.empty()) {
+            candidates.push_back((here / ".." / ".." / "configs" / "default.json").string());
+            candidates.push_back((here / ".." / "configs" / "default.json").string());
+        }
+    }
+    for (const auto &p : candidates) {
+        std::ifstream f(p);
+        if (f)
+            return json::parse(f);
+    }
+    std::string msg = "config not found; tried:";
+    for (const auto &p : candidates)
+        msg += " " + p;
+    throw std::runtime_error(msg);
 }
 
 // Finds the feedviz TUI binary: next to this binary's repo, or relative
