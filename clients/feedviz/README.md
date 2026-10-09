@@ -54,8 +54,9 @@ seconds, `--headless` for the line-per-second monitor instead of the UI,
 
 ### Themes
 
-`T` opens a picker (↑↓ previews live, Enter keeps, Esc reverts), `t`
-cycles, `--theme NAME` selects at start, `--list-themes` prints them. All
+`T` opens the fuzzy picker (type to filter, ↑↓ previews live, Enter keeps,
+Esc reverts), `t` cycles, `--theme NAME` selects at start, `--list-themes`
+prints them. All
 keep bids and asks apart in lightness as well as hue, reserve the chrome
 colour for titles and keys, and keep dim text readable on the ground.
 
@@ -101,9 +102,17 @@ column, 140×40 is the comfortable minimum.
 | `m` / `e` / Tab | MARKET screen / EVENTS screen / toggle |
 | `space` | pause the view (the book keeps updating underneath) |
 | `[` `]` | previous / next symbol |
+| `/` | symbol picker: type to fuzzy-filter, ↑↓, Enter |
+| `T` | theme picker: type to fuzzy-filter, ↑↓ previews live, Enter keeps, Esc reverts |
 | `d` | ladder depth 10 → 14 → 20 → 40 |
 | `i` | candle interval 1s → 5s → 30s → 1m |
 | `t` | next theme |
+
+Both pickers are telescope-style: a prompt line, matches ranked by a
+subsequence score (word starts and exact matches first) with the matched
+characters highlighted, Ctrl-n/p or ↑↓ to move, Ctrl-u to clear, Esc to
+cancel. The symbol picker shows last, change, volume and message rate per
+row, so it stays usable when there are hundreds of symbols.
 | `Esc` | clear selection and follow, back to live |
 
 | key | EVENTS screen |

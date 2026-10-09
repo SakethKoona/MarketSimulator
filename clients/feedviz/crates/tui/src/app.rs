@@ -1,6 +1,7 @@
 //! UI state and key handling. The app never touches messages: it reads the
 //! latest Snapshot once per frame and keeps its own selection state.
 
+use crate::picker::{Item, Picker, PickerKind};
 use feed_client::{EventRecord, FeedClient, Snapshot};
 use std::collections::VecDeque;
 use std::time::Instant;
@@ -23,8 +24,8 @@ pub struct App {
     pub interval_idx: usize,
     pub type_mask: u8,
     pub follow: Option<u64>,
-    /// Theme picker overlay: (highlighted index, theme to restore on Esc).
-    pub picker: Option<(usize, usize)>,
+    /// Fuzzy picker overlay (themes on T, symbols on /).
+    pub picker: Option<Picker>,
     pub paused: bool,
     pub sym_idx: usize,
     pub depth_idx: usize,
@@ -177,36 +178,98 @@ impl App {
         }
     }
 
+    pub fn open_theme_picker(&mut self) {
+        let items = crate::theme::THEMES
+            .iter()
+            .enumerate()
+            .map(|(i, t)| Item { label: t.name.to_string(), detail: crate::theme::blurb(t.name).to_string(), key: i })
+            .collect();
+        let cur = crate::theme::index();
+        self.picker = Some(Picker::new(PickerKind::Theme, items, cur, cur));
+    }
+
+    pub fn open_symbol_picker(&mut self) {
+        let items = self
+            .snap
+            .symbols
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let st = &s.session;
+                let chg = st.last as i64 - st.open as i64;
+                Item {
+                    label: if s.ticker.is_empty() { format!("#{}", s.symbol_id) } else { s.ticker.clone() },
+                    detail: format!("last {}  chg {:+}  vol {}  {} msgs/s", st.last, chg, s.volume, s.msgs_per_sec),
+                    key: i,
+                }
+            })
+            .collect();
+        self.picker = Some(Picker::new(PickerKind::Symbol, items, self.sym_idx, self.sym_idx));
+    }
+
+    fn on_picker_key(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::{KeyCode, KeyModifiers};
+        let Some(p) = self.picker.as_mut() else { return };
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Esc => {
+                if p.kind == PickerKind::Theme {
+                    crate::theme::set(p.restore);
+                }
+                self.picker = None;
+            }
+            KeyCode::Enter => {
+                if let Some(it) = p.current() {
+                    match p.kind {
+                        PickerKind::Theme => crate::theme::set(it.key),
+                        PickerKind::Symbol => {
+                            self.sym_idx = it.key;
+                            self.selected = None;
+                        }
+                    }
+                }
+                self.picker = None;
+            }
+            KeyCode::Up => p.up(),
+            KeyCode::Down | KeyCode::Tab => p.down(),
+            KeyCode::Char('p') if ctrl => p.up(),
+            KeyCode::Char('n') | KeyCode::Char('j') if ctrl => p.down(),
+            KeyCode::Char('k') if ctrl => p.up(),
+            KeyCode::Char('u') if ctrl => {
+                p.query.clear();
+                p.selected = 0;
+                p.refilter();
+            }
+            KeyCode::Backspace => p.pop(),
+            KeyCode::Char(c) if !ctrl => p.push(c),
+            _ => {}
+        }
+        // Live preview for themes.
+        if let Some(p) = &self.picker {
+            if p.kind == PickerKind::Theme {
+                if let Some(it) = p.current() {
+                    crate::theme::set(it.key);
+                }
+            }
+        }
+    }
+
     pub fn on_key(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::{KeyCode, KeyModifiers};
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.quit = true;
             return;
         }
-        if let Some((hl, orig)) = self.picker {
-            let n = crate::theme::THEMES.len();
-            match key.code {
-                KeyCode::Esc => {
-                    crate::theme::set(orig);
-                    self.picker = None;
-                }
-                KeyCode::Enter | KeyCode::Char('T') | KeyCode::Char('q') => self.picker = None,
-                KeyCode::Up | KeyCode::Char('k') => {
-                    let i = (hl + n - 1) % n;
-                    crate::theme::set(i);
-                    self.picker = Some((i, orig));
-                }
-                KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
-                    let i = (hl + 1) % n;
-                    crate::theme::set(i);
-                    self.picker = Some((i, orig));
-                }
-                _ => {}
-            }
+        if self.picker.is_some() {
+            self.on_picker_key(key);
             return;
         }
         if key.code == KeyCode::Char('T') {
-            self.picker = Some((crate::theme::index(), crate::theme::index()));
+            self.open_theme_picker();
+            return;
+        }
+        if key.code == KeyCode::Char('/') {
+            self.open_symbol_picker();
             return;
         }
         if self.inspect {

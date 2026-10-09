@@ -18,7 +18,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     f.render_widget(Block::default().style(crate::theme::base()), area);
     let [hdr, body, foot] = Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).areas(area);
     draw_header(f, app, hdr);
-    draw_footer_keys(f, foot, &[("m", "market"), ("space", "pause"), ("↑↓", "select"), ("Enter", "inspect"), ("n p", "same order"), ("K", "packet"), ("1-5", "types"), ("o", "follow"), ("f", "symbol"), ("Esc", "live")]);
+    draw_footer_keys(f, foot, &[("m", "market"), ("space", "pause"), ("↑↓", "select"), ("Enter", "inspect"), ("n p", "same order"), ("K", "packet"), ("1-5", "types"), ("o", "follow"), ("f", "symbol"), ("/", "find"), ("Esc", "live")]);
 
     let right_w = 64u16.min(body.width * 2 / 5);
     let [left, right] = Layout::horizontal([Constraint::Min(30), Constraint::Length(right_w)]).areas(body);

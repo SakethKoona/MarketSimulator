@@ -11,6 +11,7 @@ mod events;
 mod fmt;
 mod inspect;
 mod market;
+mod picker;
 mod theme;
 mod ui;
 
@@ -161,13 +162,38 @@ mod render_tests {
             term.draw(|f| ui::draw(f, &app)).unwrap();
             app.screen = app::Screen::Events;
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            app.picker = Some((i, 0));
+            app.open_theme_picker();
             term.draw(|f| ui::draw(f, &app)).unwrap();
             if i == 0 { dump(&term, "picker_200x55"); }
             app.picker = None;
         }
         theme::set(0);
         assert!(theme::THEMES.iter().all(|t| !theme::blurb(t.name).is_empty()), "every theme needs a blurb");
+        // Fuzzy pickers: type into them and select.
+        {
+            use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+            let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+            app.on_key(key(KeyCode::Char('T')));
+            for c in "kan".chars() { app.on_key(key(KeyCode::Char(c))); }
+            assert_eq!(app.picker.as_ref().unwrap().current().unwrap().label, "kanagawa");
+            let mut term = Terminal::new(TestBackend::new(200, 55)).unwrap();
+            term.draw(|f| ui::draw(f, &app)).unwrap();
+            dump(&term, "picker_typed_200x55");
+            app.on_key(key(KeyCode::Enter));
+            assert_eq!(theme::th().name, "kanagawa");
+            app.on_key(key(KeyCode::Char('T')));
+            for c in "mono".chars() { app.on_key(key(KeyCode::Char(c))); }
+            assert_eq!(theme::th().name, "mono", "theme previews live while typing");
+            app.on_key(key(KeyCode::Esc));
+            assert_eq!(theme::th().name, "kanagawa", "Esc reverts the preview");
+            theme::set(0);
+            app.on_key(key(KeyCode::Char('/')));
+            for c in "nv".chars() { app.on_key(key(KeyCode::Char(c))); }
+            term.draw(|f| ui::draw(f, &app)).unwrap();
+            dump(&term, "symbol_picker_200x55");
+            app.on_key(key(KeyCode::Enter));
+            assert_eq!(app.current_symbol().unwrap().ticker, "NVDA");
+        }
         // Key handling smoke: walk the log and toggles without panicking.
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
