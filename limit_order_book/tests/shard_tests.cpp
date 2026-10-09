@@ -57,6 +57,17 @@ TEST(shard_orders_tagged_and_routed) {
     EXPECT_EQ((int)ex.CancelOrder(make_order_id(1, 1)), (int)StatusCode::OrderNotFound);
 }
 
+TEST(shard_count_clamped_to_symbol_count) {
+    // 8 shards for 2 symbols: each symbol still has exactly one owner
+    Exchange ex = make_exchange(4096, 8, {"AAPL", "GOOG"});
+    EXPECT_EQ(ex.NumShards(), 2u);
+    EXPECT_EQ((int)ex.ShardOf(0), 0);
+    EXPECT_EQ((int)ex.ShardOf(1), 1);
+    auto r = ex.SubmitOrder(SymbolId{1}, 100, 5, Side::Buy);
+    EXPECT_EQ((int)shard_of(r.order_id), 1);
+    EXPECT_EQ((int)ex.CancelOrder(r.order_id), (int)StatusCode::Success);
+}
+
 TEST(shard_matching_stays_within_symbol) {
     Exchange ex = make_exchange(4096, 2, kFive);
     ex.SubmitOrder(SymbolId{0}, 100, 10, Side::Sell); // shard 0

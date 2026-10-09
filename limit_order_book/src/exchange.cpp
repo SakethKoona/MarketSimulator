@@ -50,6 +50,14 @@ Exchange::Exchange(const json &cfg) {
         num_shards = 1;
     if (num_shards > kMaxShards)
         throw std::runtime_error("Exchange: at most 256 shards");
+    // A shard with no symbols is an idle engine on an idle thread. Each
+    // symbol lives on exactly one shard, so parallelism is capped by the
+    // symbol count; clamp rather than spin up empty shards.
+    if (nextSymId > 0 && num_shards > nextSymId) {
+        std::cerr << "Exchange: " << num_shards << " shards requested for "
+                  << nextSymId << " symbols; using " << nextSymId << "\n";
+        num_shards = nextSymId;
+    }
 
     // One engine + sink per shard; symbol s lives on shard s % num_shards
     std::vector<std::vector<SymbolId>> per_shard(num_shards);
