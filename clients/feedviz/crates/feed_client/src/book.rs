@@ -3,8 +3,51 @@
 use protocol::feed::{self, Message};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-pub const MAX_BARS: usize = 180;
+pub const MAX_BARS: usize = 240;
 pub const MAX_TAPE: usize = 128;
+pub const MAX_FLOW: usize = 180;
+/// Candle intervals in seconds, in UI order.
+pub const INTERVALS: [u64; 4] = [1, 5, 30, 60];
+
+/// One second of activity, for the flow charts and indicators.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FlowSec {
+    pub sec: u64,
+    pub trades: u32,
+    pub buy_vol: u64,
+    pub sell_vol: u64,
+    pub adds: u32,
+    pub cancels: u32, // X + D
+    pub execs: u32,
+    pub replaces: u32,
+    pub messages: u32,
+    pub spread_sum: u64,
+    pub spread_n: u32,
+}
+
+/// Running session statistics for one symbol.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SessionStatsSym {
+    pub open: u64,
+    pub high: u64,
+    pub low: u64,
+    pub last: u64,
+    pub vwap_num: u128, // sum(price * qty)
+    pub buy_vol: u64,
+    pub sell_vol: u64,
+    pub spread_sum: u64,
+    pub spread_n: u64,
+}
+
+impl SessionStatsSym {
+    pub fn vwap(&self) -> f64 {
+        let v = self.buy_vol + self.sell_vol;
+        if v == 0 { 0.0 } else { self.vwap_num as f64 / v as f64 }
+    }
+    pub fn avg_spread(&self) -> f64 {
+        if self.spread_n == 0 { 0.0 } else { self.spread_sum as f64 / self.spread_n as f64 }
+    }
+}
 
 /// One-second OHLCV bar from execution prices.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -80,8 +123,11 @@ pub struct Book {
     pub last_trade: Option<Trade>,
     pub volume: u64,
     pub trades: u64,
-    pub bars: VecDeque<Bar>,
+    /// One deque per entry of INTERVALS.
+    pub bars: [VecDeque<Bar>; 4],
     pub tape: VecDeque<Trade>,
+    pub flow: VecDeque<FlowSec>,
+    pub session: SessionStatsSym,
     /// Messages whose order id was unknown, e.g. after a late join.
     pub unknown_orders: u64,
     pub out_of_order: u64,
@@ -154,30 +200,79 @@ impl Book {
         Some(Applied { level_qty_after: after.0, level_count_after: after.1, qty_moved: moved, known: true })
     }
 
+    /// The flow bucket for `ts_ns`, creating it if the second rolled over.
+    fn flow_mut(&mut self, ts_ns: u64) -> &mut FlowSec {
+        let sec = ts_ns / 1_000_000_000;
+        let fresh = match self.flow.back() {
+            Some(f) => f.sec != sec,
+            None => true,
+        };
+        if fresh {
+            if self.flow.len() == MAX_FLOW {
+                self.flow.pop_front();
+            }
+            self.flow.push_back(FlowSec { sec, ..Default::default() });
+        }
+        self.flow.back_mut().unwrap()
+    }
+
+    /// Samples the current spread into the flow bucket and session stats.
+    fn sample_spread(&mut self, ts_ns: u64) {
+        if let (Some((b, _)), Some((a, _))) = (self.best_bid(), self.best_ask()) {
+            let sp = a.saturating_sub(b);
+            self.session.spread_sum += sp;
+            self.session.spread_n += 1;
+            let f = self.flow_mut(ts_ns);
+            f.spread_sum += sp;
+            f.spread_n += 1;
+        }
+    }
+
     fn record_trade(&mut self, t: Trade) {
-        self.volume += u64::from(t.qty);
+        let q = u64::from(t.qty);
+        self.volume += q;
         self.trades += 1;
         self.last_trade = Some(t);
         if self.tape.len() == MAX_TAPE {
             self.tape.pop_front();
         }
         self.tape.push_back(t);
+
+        let st = &mut self.session;
+        if st.open == 0 {
+            st.open = t.price;
+            st.high = t.price;
+            st.low = t.price;
+        }
+        st.high = st.high.max(t.price);
+        st.low = st.low.min(t.price);
+        st.last = t.price;
+        st.vwap_num += (t.price as u128) * (q as u128);
+        if t.aggressor_buy { st.buy_vol += q } else { st.sell_vol += q }
+
         let sec = t.ts_ns / 1_000_000_000;
-        match self.bars.back_mut() {
-            Some(b) if b.sec == sec => {
-                b.high = b.high.max(t.price);
-                b.low = b.low.min(t.price);
-                b.close = t.price;
-                b.volume += u64::from(t.qty);
-                b.trades += 1;
-            }
-            _ => {
-                if self.bars.len() == MAX_BARS {
-                    self.bars.pop_front();
+        for (i, iv) in INTERVALS.iter().enumerate() {
+            let bsec = sec - sec % iv;
+            let bars = &mut self.bars[i];
+            match bars.back_mut() {
+                Some(b) if b.sec == bsec => {
+                    b.high = b.high.max(t.price);
+                    b.low = b.low.min(t.price);
+                    b.close = t.price;
+                    b.volume += q;
+                    b.trades += 1;
                 }
-                self.bars.push_back(Bar { sec, open: t.price, high: t.price, low: t.price, close: t.price, volume: u64::from(t.qty), trades: 1 });
+                _ => {
+                    if bars.len() == MAX_BARS {
+                        bars.pop_front();
+                    }
+                    bars.push_back(Bar { sec: bsec, open: t.price, high: t.price, low: t.price, close: t.price, volume: q, trades: 1 });
+                }
             }
         }
+        let f = self.flow_mut(t.ts_ns);
+        f.trades += 1;
+        if t.aggressor_buy { f.buy_vol += q } else { f.sell_vol += q }
     }
 
     fn note_seq(&mut self, seq: u64) {
@@ -190,6 +285,26 @@ impl Book {
     /// Applies one message for this symbol and reports what it did to the
     /// affected level.
     pub fn apply(&mut self, msg: &Message<'_>) -> Applied {
+        let applied = self.apply_inner(msg);
+        if !matches!(msg, Message::StockDirectory(_) | Message::SystemEvent(_)) {
+            let ts = msg.ts_ns();
+            {
+                let f = self.flow_mut(ts);
+                f.messages += 1;
+                match msg {
+                    Message::AddOrder(_) => f.adds += 1,
+                    Message::OrderExecuted(_) => f.execs += 1,
+                    Message::OrderCancel(_) | Message::OrderDelete(_) => f.cancels += 1,
+                    Message::OrderReplace(_) => f.replaces += 1,
+                    _ => {}
+                }
+            }
+            self.sample_spread(ts);
+        }
+        applied
+    }
+
+    fn apply_inner(&mut self, msg: &Message<'_>) -> Applied {
         let unknown = |this: &mut Self, side: Option<Side>, px: u64| {
             this.unknown_orders += 1;
             let (q, c) = side.map(|s| this.level_state(s, px)).unwrap_or((0, 0));

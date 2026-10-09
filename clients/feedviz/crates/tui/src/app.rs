@@ -7,9 +7,22 @@ use std::time::Instant;
 
 pub const DEPTHS: [usize; 4] = [10, 14, 20, 40];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Screen {
+    Market,
+    Events,
+}
+
+/// Bit per message type in the EVENTS filter: A E X D U.
+pub const TYPE_KEYS: [u8; 5] = [b'A', b'E', b'X', b'D', b'U'];
+
 pub struct App {
     pub client: FeedClient,
     pub snap: Snapshot,
+    pub screen: Screen,
+    pub interval_idx: usize,
+    pub type_mask: u8,
+    pub follow: Option<u64>,
     pub paused: bool,
     pub sym_idx: usize,
     pub depth_idx: usize,
@@ -30,6 +43,10 @@ impl App {
         App {
             client,
             snap: Snapshot::default(),
+            screen: Screen::Market,
+            interval_idx: 0,
+            type_mask: 0b11111,
+            follow: None,
             paused: false,
             sym_idx: 0,
             depth_idx: 1,
@@ -92,14 +109,28 @@ impl App {
         self.snap.symbols.get(self.sym_idx)
     }
 
-    /// Events shown in the log: all, or the current symbol's plus gaps.
+    pub fn type_on(&self, ty: u8) -> bool {
+        match TYPE_KEYS.iter().position(|t| *t == ty) {
+            Some(i) => self.type_mask & (1 << i) != 0,
+            None => true,
+        }
+    }
+
+    /// Events shown in the log after the symbol, type and follow filters.
+    /// Gap rows always show.
     pub fn visible_events(&self) -> Vec<&EventRecord> {
         let sym = self.current_symbol().map(|s| s.symbol_id);
         self.snap
             .events
             .iter()
-            .filter(|e| !self.filter_sym || e.is_gap() || Some(e.symbol_id) == sym)
             .filter(|e| e.ty != b'R')
+            .filter(|e| {
+                e.is_gap()
+                    || match self.follow {
+                        Some(id) => e.order_id == id,
+                        None => (!self.filter_sym || Some(e.symbol_id) == sym) && self.type_on(e.ty),
+                    }
+            })
             .collect()
     }
 
@@ -164,13 +195,36 @@ impl App {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char(' ') => self.paused = !self.paused,
-            KeyCode::Char(']') | KeyCode::Tab => {
+            KeyCode::Char('m') => self.screen = Screen::Market,
+            KeyCode::Char('e') => self.screen = Screen::Events,
+            KeyCode::Char('i') => self.interval_idx = (self.interval_idx + 1) % feed_client::INTERVALS.len(),
+            KeyCode::Char(c @ '1'..='5') => {
+                let i = c as u8 - b'1';
+                self.type_mask ^= 1 << i;
+                if self.type_mask == 0 {
+                    self.type_mask = 0b11111;
+                }
+            }
+            KeyCode::Char('o') => {
+                self.follow = match (self.follow, self.selected_event()) {
+                    (Some(_), _) => None,
+                    (None, Some(e)) if e.order_id != 0 => Some(e.order_id),
+                    _ => None,
+                };
+            }
+            KeyCode::Tab => {
+                self.screen = match self.screen {
+                    Screen::Market => Screen::Events,
+                    Screen::Events => Screen::Market,
+                };
+            }
+            KeyCode::Char(']') => {
                 if !self.snap.symbols.is_empty() {
                     self.sym_idx = (self.sym_idx + 1) % self.snap.symbols.len();
                     self.selected = None;
                 }
             }
-            KeyCode::Char('[') | KeyCode::BackTab => {
+            KeyCode::Char('[') => {
                 if !self.snap.symbols.is_empty() {
                     self.sym_idx = (self.sym_idx + self.snap.symbols.len() - 1) % self.snap.symbols.len();
                     self.selected = None;
@@ -191,6 +245,7 @@ impl App {
             }
             KeyCode::Esc => {
                 self.selected = None;
+                self.follow = None;
                 self.paused = false;
             }
             _ => {}

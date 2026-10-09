@@ -1,7 +1,7 @@
 //! What the UI thread sees: an immutable copy of everything it draws,
 //! rebuilt by the book thread a few dozen times a second.
 
-use crate::book::{Bar, Book, Trade};
+use crate::book::{Bar, Book, FlowSec, SessionStatsSym, Trade};
 use crate::session::{EventRecord, Session, SessionStats};
 
 /// Events carried in each snapshot (the newest ones).
@@ -32,9 +32,14 @@ pub struct SymbolSnapshot {
     pub book_seq: u64,
     pub out_of_order: u64,
     pub unknown_orders: u64,
-    pub bars: Vec<Bar>,
+    /// One Vec per entry of book::INTERVALS.
+    pub bars: [Vec<Bar>; 4],
     /// Newest last.
     pub tape: Vec<Trade>,
+    pub flow: Vec<FlowSec>,
+    pub session: SessionStatsSym,
+    /// Messages per second for this symbol over the last full second.
+    pub msgs_per_sec: u32,
 }
 
 impl SymbolSnapshot {
@@ -145,8 +150,16 @@ fn book_snapshot(b: &Book, depth: usize) -> SymbolSnapshot {
         book_seq: b.last_book_seq,
         out_of_order: b.out_of_order,
         unknown_orders: b.unknown_orders,
-        bars: b.bars.iter().copied().collect(),
+        bars: [
+            b.bars[0].iter().copied().collect(),
+            b.bars[1].iter().copied().collect(),
+            b.bars[2].iter().copied().collect(),
+            b.bars[3].iter().copied().collect(),
+        ],
         tape: b.tape.iter().copied().collect(),
+        flow: b.flow.iter().copied().collect(),
+        session: b.session,
+        msgs_per_sec: b.flow.iter().rev().nth(1).map(|f| f.messages).unwrap_or(0),
     }
 }
 

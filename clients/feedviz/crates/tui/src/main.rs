@@ -7,8 +7,10 @@
 
 mod app;
 mod decode;
+mod events;
 mod fmt;
 mod inspect;
+mod market;
 mod theme;
 mod ui;
 
@@ -102,14 +104,29 @@ mod render_tests {
             let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
             app.inspect = false;
             app.selected = None;
+            app.screen = app::Screen::Market;
+            for iv in 0..feed_client::INTERVALS.len() {
+                app.interval_idx = iv;
+                term.draw(|f| ui::draw(f, &app)).unwrap();
+            }
+            app.interval_idx = 0;
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            if w == 200 { dump(&term, "main_200x55"); }
-            if w == 140 { dump(&term, "main_140x40"); }
+            if w == 200 { dump(&term, "market_200x55"); }
+            if w == 140 { dump(&term, "market_140x40"); }
+            app.screen = app::Screen::Events;
+            term.draw(|f| ui::draw(f, &app)).unwrap();
+            if w == 200 { dump(&term, "events_200x55"); }
+            if w == 140 { dump(&term, "events_140x40"); }
+            term.draw(|f| ui::draw_classic(f, &app)).unwrap();
             // Select an execution and open the inspector.
             let e = app.snap.events.iter().rev().find(|e| e.ty == b'E' && e.applied.known).copied().unwrap();
             app.selected = Some(e.seq);
             term.draw(|f| ui::draw(f, &app)).unwrap();
-            if w == 200 { dump(&term, "main_selected_200x55"); }
+            if w == 200 { dump(&term, "events_selected_200x55"); }
+            app.follow = Some(e.order_id);
+            term.draw(|f| ui::draw(f, &app)).unwrap();
+            if w == 200 { dump(&term, "events_follow_200x55"); }
+            app.follow = None;
             app.inspect = true;
             term.draw(|f| inspect::draw(f, &app)).unwrap();
             if w == 200 { dump(&term, "inspect_200x55"); }
@@ -126,7 +143,7 @@ mod render_tests {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
         app.inspect = false;
-        for c in [KeyCode::Up, KeyCode::Up, KeyCode::Down, KeyCode::Enter, KeyCode::Char('n'), KeyCode::Char('p'), KeyCode::Char('K'), KeyCode::Esc, KeyCode::Char(']'), KeyCode::Char('['), KeyCode::Char('d'), KeyCode::Char('f'), KeyCode::Char(' '), KeyCode::PageUp, KeyCode::PageDown] {
+        for c in [KeyCode::Up, KeyCode::Up, KeyCode::Down, KeyCode::Enter, KeyCode::Char('n'), KeyCode::Char('p'), KeyCode::Char('K'), KeyCode::Esc, KeyCode::Char(']'), KeyCode::Char('['), KeyCode::Char('d'), KeyCode::Char('f'), KeyCode::Char(' '), KeyCode::PageUp, KeyCode::PageDown, KeyCode::Char('m'), KeyCode::Char('e'), KeyCode::Tab, KeyCode::Char('i'), KeyCode::Char('1'), KeyCode::Char('2'), KeyCode::Char('1'), KeyCode::Up, KeyCode::Char('o'), KeyCode::Char('o'), KeyCode::Esc] {
             app.on_key(key(c));
         }
         let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();

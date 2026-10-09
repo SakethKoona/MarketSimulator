@@ -2,9 +2,10 @@
 
 Rust terminal UI for the MarketSimulator market data feed. Subscribes to
 the UDP multicast feed (or replays a capture), rebuilds every symbol's L3
-book, and draws it at 60 fps: ladder, 1s candles, event log down to the
-byte, time and sales, feed health, and a full-screen inspector for any
-single message.
+book, and draws it at 60 fps on three screens: MARKET (ladder, candles
+with VWAP, indicators, flow, symbol monitor, tape) at human speed, EVENTS
+(every message, filterable, down to the byte), and INSPECT (one message in
+full: fields, hex, lifecycle, book impact, packet, timing).
 
 ## Layout
 
@@ -56,16 +57,25 @@ column, 140×40 is the comfortable minimum.
 
 ### Keys
 
-| key | main screen |
+| key | everywhere |
 |---|---|
 | `q` | quit |
+| `m` / `e` / Tab | MARKET screen / EVENTS screen / toggle |
 | `space` | pause the view (the book keeps updating underneath) |
-| `[` `]` / Tab | previous / next symbol |
+| `[` `]` | previous / next symbol |
 | `d` | ladder depth 10 → 14 → 20 → 40 |
-| `f` | event log: current symbol only / all symbols |
-| `↑` `↓` / `j` `k`, PgUp, PgDn | select an event-log row (pauses the view) |
+| `i` | candle interval 1s → 5s → 30s → 1m |
+| `Esc` | clear selection and follow, back to live |
+
+| key | EVENTS screen |
+|---|---|
+| `1`–`5` | toggle message types A E X D U in the log |
+| `f` | log shows current symbol only / all symbols |
+| `o` | follow: pin the log to the selected row's order id (again to release) |
+| `↑` `↓` / `j` `k`, PgUp, PgDn | select a row (pauses the view) |
 | `Enter` | open the inspector on the selected row |
-| `Esc` | clear the selection and follow live again |
+| `n` `p` | next / previous event for the same order |
+| `K` | jump to the first event of this packet |
 
 | key | inspector |
 |---|---|
@@ -74,26 +84,43 @@ column, 140×40 is the comfortable minimum.
 | `n` `p` | next / previous event for the same order |
 | `K` | jump to the first event of this packet |
 
-### What the panels show
+### MARKET screen
 
 - **L2 BOOK**: asks above, bids below, price in the centre, cumulative
   depth bars behind the quantities, order count per level, mid, spread and
   imbalance, last trade, volume, live orders and level counts.
-- **1s CANDLES / VOL**: one candle per wall-clock second from execution
-  prices (blue up, orange down), half-block resolution, executed volume
-  underneath, the forming candle's OHLC in the title.
+- **CANDLES / VOL**: one candle per interval from execution prices (blue
+  up, orange down), half-block resolution, a dashed VWAP line, executed
+  volume underneath, the forming candle's OHLC and VWAP in the title.
+- **INDICATORS**: ten tiles with value, change and a 60-second sparkline:
+  last and change since open, VWAP, session high/low, volume, trades and
+  trades/s, average trade size, buy volume share (aggressor side), average
+  spread, book pressure over the shown levels, and order flow per second.
+- **FLOW**: trades per second, buy versus sell executed volume stacked,
+  and spread, each over the last 90 seconds.
+- **SYMBOL MONITOR**: one row per symbol with last, change, best bid and
+  ask, spread, volume, messages per second and a trend sparkline.
+- **TIME & SALES** and a three-line **FEED HEALTH** strip.
+
+### EVENTS screen
+
 - **EVENT LOG**: one row per message in stream order: Mold seq, engine time
   to the ns, type, symbol, order id, side, price, qty, remaining, match id,
-  book_seq and receive latency; a gap is a red row where messages are
-  missing. Columns drop from the right as the terminal narrows.
-- **TIME & SALES**: fills with the aggressor side inferred from the
-  resting side.
+  book_seq and receive latency; a gap is a red row. The filter bar shows
+  the active type toggles, symbol filter and follow target. Columns drop
+  from the right as the terminal narrows.
+- **INSPECTOR**: the selected message decoded field by field with its raw
+  bytes colour-keyed, and the level before and after it.
+- **ORDER**: the selected order's lifecycle as a chain, from the events in
+  the window.
 - **FEED HEALTH**: msgs/s, latency p99 and UI frame-time sparklines, the
   message-type mix, ring occupancy, ingest drops, gaps, duplicates.
-- **INSPECTOR**: the selected message decoded field by field with its raw
-  bytes colour-keyed, and the level before and after it. Enter opens the
-  full-screen version with the order's lifecycle, the match, the Mold
-  packet it arrived in, timing and the spec text.
+
+### INSPECT screen
+
+Enter on a log row: decoded fields with offsets and meanings, raw bytes,
+the order's lifecycle, book impact before and after, both sides of the
+match, the Mold packet it arrived in, timing and the spec paragraph.
 
 ### Headless
 

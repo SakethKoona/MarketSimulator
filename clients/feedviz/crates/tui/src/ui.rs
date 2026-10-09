@@ -14,6 +14,16 @@ use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
 use ratatui::Frame;
 
 pub fn draw(f: &mut Frame, app: &App) {
+    match app.screen {
+        crate::app::Screen::Market => crate::market::draw(f, app),
+        crate::app::Screen::Events => crate::events::draw(f, app),
+    }
+}
+
+/// The original single-screen layout, kept for the render test and as a
+/// fallback for very small terminals.
+#[allow(dead_code)]
+pub fn draw_classic(f: &mut Frame, app: &App) {
     let area = f.area();
     f.render_widget(Block::default().style(theme::base()), area);
     let [hdr, body, foot] =
@@ -71,15 +81,15 @@ pub fn panel(f: &mut Frame, area: Rect, title: &str, sub: &str) -> Rect {
     Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: inner.height.saturating_sub(1) }
 }
 
-fn pad_left(s: &str, w: usize) -> String {
+pub fn pad_left(s: &str, w: usize) -> String {
     let n = s.chars().count();
     if n >= w { s.chars().take(w).collect() } else { format!("{}{}", " ".repeat(w - n), s) }
 }
-fn pad_right(s: &str, w: usize) -> String {
+pub fn pad_right(s: &str, w: usize) -> String {
     let n = s.chars().count();
     if n >= w { s.chars().take(w).collect() } else { format!("{}{}", s, " ".repeat(w - n)) }
 }
-fn center(s: &str, w: usize) -> String {
+pub fn center(s: &str, w: usize) -> String {
     let n = s.chars().count();
     if n >= w {
         return s.chars().take(w).collect();
@@ -88,19 +98,27 @@ fn center(s: &str, w: usize) -> String {
     format!("{}{}{}", " ".repeat(l), s, " ".repeat(w - n - l))
 }
 
-fn sym_name(s: &SymbolSnapshot) -> String {
+pub fn sym_name(s: &SymbolSnapshot) -> String {
     if s.ticker.is_empty() { format!("#{}", s.symbol_id) } else { s.ticker.clone() }
 }
 
 // ------------------------------------------------------------ header / footer
 
-fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let s = &app.snap;
     let mut spans = vec![Span::styled(" FEEDVIZ ", bold(AMBER_BRIGHT).bg(HDR_BG)), Span::styled(" ", Style::default().bg(HDR_BG))];
+    for (name, sc) in [("MARKET", crate::app::Screen::Market), ("EVENTS", crate::app::Screen::Events)] {
+        if app.screen == sc {
+            spans.push(Span::styled(format!(" {name} "), Style::default().fg(HDR_BG).bg(AMBER).add_modifier(ratatui::style::Modifier::BOLD)));
+        } else {
+            spans.push(Span::styled(format!(" {name} "), Style::default().fg(AMBER).bg(HDR_BG)));
+        }
+    }
+    spans.push(Span::styled("  ", Style::default().bg(HDR_BG)));
     for (i, sym) in s.symbols.iter().enumerate() {
         let name = format!(" {} ", sym_name(sym));
         if i == app.sym_idx {
-            spans.push(Span::styled(name, Style::default().fg(HDR_BG).bg(AMBER).add_modifier(ratatui::style::Modifier::BOLD)));
+            spans.push(Span::styled(name, Style::default().fg(PAUSE_FG).bg(PAUSE_BG).add_modifier(ratatui::style::Modifier::BOLD)));
         } else {
             spans.push(Span::styled(name, Style::default().fg(AMBER).bg(HDR_BG)));
         }
@@ -110,13 +128,18 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         vec![Span::styled(format!("  {k} "), Style::default().fg(AMBER_DIM).bg(HDR_BG)), Span::styled(v, Style::default().fg(c).bg(HDR_BG))]
     };
     let session = String::from_utf8_lossy(&s.stats.session).trim().to_string();
-    spans.extend(kv("SESSION", if session.is_empty() { "-".into() } else { session }, AMBER_TEXT));
+    let wide = area.width >= 170;
+    if wide {
+        spans.extend(kv("SESSION", if session.is_empty() { "-".into() } else { session }, AMBER_TEXT));
+    }
     spans.extend(kv("SEQ", fmt::commas(s.stats.next_seq), AMBER_TEXT));
     spans.extend(kv("MSGS/S", fmt::commas(s.msgs_per_sec), AMBER_TEXT));
     spans.extend(kv("P99", fmt::micros(s.latency_p99_ns), AMBER_TEXT));
     spans.extend(kv("GAPS", s.stats.gaps.to_string(), if s.stats.gaps > 0 { RED } else { AMBER_TEXT }));
-    let shards = s.symbols.iter().map(|x| fmt::shard_of(x.book_seq)).max().map(|m| m as usize + 1).unwrap_or(1);
-    spans.extend(kv("SHARDS", shards.to_string(), AMBER_TEXT));
+    if wide {
+        let shards = s.symbols.iter().map(|x| fmt::shard_of(x.book_seq)).max().map(|m| m as usize + 1).unwrap_or(1);
+        spans.extend(kv("SHARDS", shards.to_string(), AMBER_TEXT));
+    }
     let clock = s.events.last().map(|e| fmt::time_ms(e.ts_ns)).unwrap_or_else(|| "--:--:--.---".into());
     let state = if app.paused {
         Span::styled(" ❚❚ PAUSED ", bold(PAUSE_FG).bg(PAUSE_BG))
@@ -130,20 +153,19 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let right = vec![Span::styled(format!("{clock}  "), Style::default().fg(AMBER_TEXT).bg(HDR_BG)), state, Span::styled(" ", Style::default().bg(HDR_BG))];
     let left_len: usize = spans.iter().map(|x| x.content.chars().count()).sum();
     let right_len: usize = right.iter().map(|x| x.content.chars().count()).sum();
-    let pad = (area.width as usize).saturating_sub(left_len + right_len);
+    let pad = (area.width as usize).saturating_sub(left_len + right_len).max(2);
     spans.push(Span::styled(" ".repeat(pad), Style::default().bg(HDR_BG)));
     spans.extend(right);
     f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(HDR_BG)), area);
 }
 
-fn draw_footer(f: &mut Frame, area: Rect) {
-    let keys = [("q", "quit"), ("space", "pause"), ("[ ]", "symbol"), ("d", "depth"), ("f", "filter"), ("↑↓", "select"), ("Enter", "inspect"), ("Esc", "follow")];
+pub fn draw_footer_keys(f: &mut Frame, area: Rect, keys: &[(&str, &str)]) {
     let mut spans = vec![Span::styled(" ", Style::default().bg(PANEL_HDR_BG))];
     for (k, v) in keys {
-        spans.push(Span::styled(k, bold(AMBER).bg(PANEL_HDR_BG)));
+        spans.push(Span::styled(k.to_string(), bold(AMBER).bg(PANEL_HDR_BG)));
         spans.push(Span::styled(format!(" {v}   "), Style::default().fg(DIM).bg(PANEL_HDR_BG)));
     }
-    let tail = "feedviz 0.1 · feed v1 · ratatui ";
+    let tail = "feedviz 0.2 · feed v1 · ratatui ";
     let used: usize = spans.iter().map(|x| x.content.chars().count()).sum();
     let pad = (area.width as usize).saturating_sub(used + tail.len());
     spans.push(Span::styled(" ".repeat(pad), Style::default().bg(PANEL_HDR_BG)));
@@ -151,9 +173,13 @@ fn draw_footer(f: &mut Frame, area: Rect) {
     f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default().bg(PANEL_HDR_BG)), area);
 }
 
+fn draw_footer(f: &mut Frame, area: Rect) {
+    draw_footer_keys(f, area, &[("q", "quit"), ("space", "pause"), ("[ ]", "symbol"), ("d", "depth"), ("f", "filter"), ("↑↓", "select"), ("Enter", "inspect"), ("Esc", "follow")]);
+}
+
 // ------------------------------------------------------------ ladder
 
-fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
+pub fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
     let Some(sym) = app.current_symbol() else {
         let inner = panel(f, area, "L2 BOOK", "");
         f.render_widget(Paragraph::new("waiting for feed…").style(dim()), inner);
@@ -246,20 +272,28 @@ fn draw_ladder(f: &mut Frame, app: &App, area: Rect) {
 
 // ------------------------------------------------------------ candles
 
-fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
+pub fn interval_label(i: usize) -> String {
+    let s = feed_client::INTERVALS[i];
+    if s >= 60 { format!("{}m", s / 60) } else { format!("{s}s") }
+}
+
+pub fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
     let Some(sym) = app.current_symbol() else { return };
-    let last = sym.bars.last();
+    let bars_all = &sym.bars[app.interval_idx];
+    let last = bars_all.last();
+    let vwap = sym.session.vwap();
     let sub = last
-        .map(|b| format!("O {} H {} L {} C {} · {}{}", b.open, b.high, b.low, b.close, if b.close >= b.open { "▲ +" } else { "▼ -" }, b.close.abs_diff(b.open)))
+        .map(|b| format!("O {} H {} L {} C {} · {}{} · VWAP {:.1}", b.open, b.high, b.low, b.close, if b.close >= b.open { "▲ +" } else { "▼ -" }, b.close.abs_diff(b.open), vwap))
         .unwrap_or_default();
-    let inner = panel(f, area, &format!("{} · 1s CANDLES", sym_name(sym)), &sub);
+    let ivs: String = (0..feed_client::INTERVALS.len()).map(|i| if i == app.interval_idx { format!("[{}]", interval_label(i)) } else { format!(" {} ", interval_label(i)) }).collect();
+    let inner = panel(f, area, &format!("{} · CANDLES {}", sym_name(sym), ivs), &sub);
     if inner.height < 3 || inner.width < 12 {
         return;
     }
     let axis_w = 8u16;
     let plot = Rect { x: inner.x, y: inner.y, width: inner.width - axis_w, height: inner.height };
     let n = (plot.width as usize / 2).max(1);
-    let bars: Vec<_> = sym.bars.iter().rev().take(n).rev().collect();
+    let bars: Vec<_> = bars_all.iter().rev().take(n).rev().collect();
     if bars.is_empty() {
         f.render_widget(Paragraph::new("no trades yet").style(dim()), plot);
         return;
@@ -270,6 +304,15 @@ fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
     let sub_rows = plot.height as f64 * 2.0;
     let y_of = |p: u64| -> i32 { (((hi - p) as f64 / (hi - lo) as f64) * (sub_rows - 1.0)).round() as i32 };
     let buf = f.buffer_mut();
+    // VWAP as a dashed line behind the candles.
+    if vwap > 0.0 && vwap >= lo as f64 && vwap <= hi as f64 {
+        let row = (((hi as f64 - vwap) / (hi - lo) as f64) * (plot.height as f64 - 1.0)).round() as u16;
+        for x in (plot.x..plot.x + plot.width).step_by(2) {
+            if let Some(c) = buf.cell_mut((x, plot.y + row)) {
+                c.set_symbol("╌").set_fg(AMBER_DIM).set_bg(BG);
+            }
+        }
+    }
     let lead = plot.width.saturating_sub(bars.len() as u16 * 2);
     for (i, b) in bars.iter().enumerate() {
         let x = plot.x + lead + (i as u16) * 2;
@@ -311,7 +354,7 @@ fn draw_candles(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines), axis);
 }
 
-fn draw_volume(f: &mut Frame, app: &App, area: Rect) {
+pub fn draw_volume(f: &mut Frame, app: &App, area: Rect) {
     let Some(sym) = app.current_symbol() else { return };
     let block = Block::default().borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM).border_style(fg(BORDER));
     let inner = block.inner(area);
@@ -321,7 +364,7 @@ fn draw_volume(f: &mut Frame, app: &App, area: Rect) {
     }
     let plot = Rect { x: inner.x, y: inner.y, width: inner.width - 8, height: inner.height };
     let n = (plot.width as usize / 2).max(1);
-    let bars: Vec<_> = sym.bars.iter().rev().take(n).rev().collect();
+    let bars: Vec<_> = sym.bars[app.interval_idx].iter().rev().take(n).rev().collect();
     let mut data: Vec<u64> = Vec::with_capacity(plot.width as usize);
     let lead = (plot.width as usize).saturating_sub(bars.len() * 2);
     for _ in 0..lead {
@@ -400,7 +443,7 @@ pub fn event_line(e: &EventRecord, cols: &[(&str, u16, bool)], ticker: &str, sel
     Line::from(spans)
 }
 
-fn draw_event_log(f: &mut Frame, app: &App, area: Rect) {
+pub fn draw_event_log(f: &mut Frame, app: &App, area: Rect) {
     let sym_name_s = app.current_symbol().map(sym_name).unwrap_or_default();
     let sub = format!("filter: {} · ↑↓ select · Enter inspect · f filter", if app.filter_sym { sym_name_s.as_str() } else { "all" });
     let inner = panel(f, area, "EVENT LOG · every message, in stream order", &sub);
@@ -427,7 +470,7 @@ fn draw_event_log(f: &mut Frame, app: &App, area: Rect) {
 
 // ------------------------------------------------------------ tape
 
-fn draw_tape(f: &mut Frame, app: &App, area: Rect) {
+pub fn draw_tape(f: &mut Frame, app: &App, area: Rect) {
     let inner = panel(f, area, "TIME & SALES", "match · px · qty · aggr");
     let Some(sym) = app.current_symbol() else { return };
     let rows = inner.height as usize;
@@ -451,7 +494,7 @@ fn draw_tape(f: &mut Frame, app: &App, area: Rect) {
 
 // ------------------------------------------------------------ health
 
-fn draw_health(f: &mut Frame, app: &App, area: Rect) {
+pub fn draw_health(f: &mut Frame, app: &App, area: Rect) {
     let inner = panel(f, area, "FEED HEALTH", if app.replay { "replay" } else { "multicast" });
     let s = &app.snap;
     let w = inner.width as usize;
@@ -540,7 +583,7 @@ pub fn hex_lines(e: &EventRecord, fields: &[decode::Field], per_line: usize) -> 
     lines
 }
 
-fn draw_inspector_panel(f: &mut Frame, app: &App, area: Rect) {
+pub fn draw_inspector_panel(f: &mut Frame, app: &App, area: Rect) {
     let title = match app.selected {
         Some(seq) => format!("INSPECTOR · seq {}", fmt::commas(seq)),
         None => "INSPECTOR".to_string(),
