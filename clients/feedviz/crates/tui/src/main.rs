@@ -60,7 +60,7 @@ fn parse_args() -> Result<Args> {
             "--headless" => headless = true,
             "--theme" => theme_name = Some(val()?),
             "-h" | "--help" => {
-                println!("feedviz [--group G] [--port P] [--iface IP] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS] [--theme amber|midnight|phosphor|solarized|paper]");
+                println!("feedviz [--group G] [--port P] [--iface IP] [--replay FILE] [--headless] [--depth N] [--seconds S] [--fps N] [--interval-ms MS] [--theme amber|midnight|phosphor|solarized|paper|kanagawa]");
                 std::process::exit(0);
             }
             other => bail!("unknown argument {other}"),

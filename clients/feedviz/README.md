@@ -54,7 +54,7 @@ seconds, `--headless` for the line-per-second monitor instead of the UI,
 
 ### Themes
 
-`t` cycles, `--theme` selects. All five keep bids and asks apart in
+`t` cycles, `--theme` selects. All six keep bids and asks apart in
 lightness as well as hue, reserve the chrome colour for titles and keys,
 and keep dim text readable on the ground.
 
@@ -65,6 +65,7 @@ and keep dim text readable on the ground.
 | `phosphor` | near-black green | phosphor green | bright green / amber | CRT look |
 | `solarized` | base03 | yellow | blue / orange | solarized users |
 | `paper` | warm off-white | ochre | navy / burnt orange | bright rooms |
+| `kanagawa` | Sumi Ink | Carp Yellow | Crystal Blue / Surimi Orange | kanagawa.nvim users |
 
 Themes live in `crates/tui/src/theme.rs` as one struct each; adding one is
 a new entry in `THEMES`.

@@ -48,7 +48,7 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::Rgb(r, g, b)
 }
 
-pub static THEMES: [Theme; 5] = [
+pub static THEMES: [Theme; 6] = [
     // Bloomberg-style amber on black.
     Theme {
         name: "amber",
@@ -118,6 +118,21 @@ pub static THEMES: [Theme; 5] = [
         green: rgb(47, 125, 50), purple: rgb(109, 40, 217), red: rgb(185, 28, 28), red_bg: rgb(250, 220, 220),
         live_bg: rgb(47, 125, 50), live_fg: rgb(240, 255, 240), pause_bg: rgb(138, 90, 0), pause_fg: rgb(255, 245, 225),
         mix_d: rgb(180, 172, 160), mix_x: rgb(210, 180, 120), mix_u: rgb(190, 170, 230),
+    },
+    // Kanagawa (rebelot): Sumi Ink ground, Fuji White text, Carp Yellow
+    // chrome, Crystal Blue bids vs Surimi Orange asks, Wave Blue selection.
+    Theme {
+        name: "kanagawa",
+        bg: rgb(31, 31, 40), panel_hdr_bg: rgb(22, 22, 29), panel_alt: rgb(42, 42, 55), hdr_bg: rgb(37, 37, 53),
+        border: rgb(54, 54, 70), text: rgb(220, 215, 186), text_bright: rgb(230, 225, 200), muted: rgb(200, 192, 147),
+        dim: rgb(142, 139, 126), dimmer: rgb(114, 113, 105),
+        amber: rgb(230, 195, 132), amber_bright: rgb(242, 217, 163), amber_dim: rgb(192, 163, 110), amber_text: rgb(223, 192, 138),
+        select_bg: rgb(34, 50, 73),
+        bid: rgb(126, 156, 216), bid_text: rgb(127, 180, 202), bid_bar: rgb(34, 50, 73), bid_bar_solid: rgb(45, 79, 103),
+        ask: rgb(255, 160, 102), ask_text: rgb(255, 192, 140), ask_bar: rgb(67, 36, 43), ask_bar_solid: rgb(195, 64, 67),
+        green: rgb(152, 187, 108), purple: rgb(149, 127, 184), red: rgb(255, 93, 98), red_bg: rgb(67, 36, 43),
+        live_bg: rgb(118, 148, 106), live_fg: rgb(240, 245, 224), pause_bg: rgb(73, 68, 60), pause_fg: rgb(230, 195, 132),
+        mix_d: rgb(84, 84, 109), mix_x: rgb(192, 163, 110), mix_u: rgb(147, 138, 169),
     },
 ];
 
