@@ -2,10 +2,12 @@
 //
 //   mktsim shell [config]        interactive shell on an in-process exchange
 //   mktsim run SCRIPT [config]   run commands from a file ("-" for stdin)
-//   mktsim connect [host:port]   same commands over BOE to a running exchange
+//   mktsim connect [host:port] [SCRIPT|-]
+//                                same commands over BOE to a running exchange
 //
 // Config defaults to configs/default.json found relative to the working
 // directory (see Exchange::LoadConfig).
+#include "remote_session.hpp"
 #include "session.hpp"
 #include "shell.hpp"
 #include <fstream>
@@ -16,7 +18,7 @@ static int usage() {
     std::cerr << "usage:\n"
                  "  mktsim shell [config.json]\n"
                  "  mktsim run SCRIPT|- [config.json]\n"
-                 "  mktsim connect [host:port]\n";
+                 "  mktsim connect [host:port] [SCRIPT|-]\n";
     return 2;
 }
 
@@ -78,8 +80,45 @@ int main(int argc, char **argv) {
             return failed ? 1 : 0;
         }
         if (mode == "connect") {
-            std::cerr << "mktsim: connect is not built yet\n";
-            return 2;
+            std::string host = "127.0.0.1";
+            std::uint16_t port = 30000;
+            const char *script = nullptr;
+            for (int i = 2; i < argc; i++) {
+                std::string a = argv[i];
+                if (a == "-" || a.find('/') != std::string::npos ||
+                    a.find(".txt") != std::string::npos) {
+                    script = argv[i];
+                } else {
+                    auto c = a.find(':');
+                    host = c == std::string::npos ? a : a.substr(0, c);
+                    if (c != std::string::npos)
+                        port = static_cast<std::uint16_t>(std::stoi(a.substr(c + 1)));
+                }
+            }
+            RemoteSession session(host, port);
+            Shell shell(session, std::cout, std::cerr);
+            if (!script) {
+                bool tty = isatty(fileno(stdin));
+                if (tty)
+                    std::cout << "mktsim: " << session.Describe()
+                              << ". Type help.\n";
+                shell.Repl(std::cin, tty);
+                return 0;
+            }
+            int failed;
+            if (std::string(script) == "-") {
+                failed = shell.Repl(std::cin, false);
+            } else {
+                std::ifstream in(script);
+                if (!in) {
+                    std::cerr << "mktsim: cannot open " << script << "\n";
+                    return 2;
+                }
+                failed = shell.Repl(in, false);
+            }
+            if (failed)
+                std::cerr << "mktsim: " << failed << " command(s) failed\n";
+            return failed ? 1 : 0;
         }
     } catch (const std::exception &e) {
         std::cerr << "mktsim: " << e.what() << "\n";

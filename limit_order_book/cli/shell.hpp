@@ -40,6 +40,10 @@ class Shell {
     void print_events(std::size_t last_n);
     bool need_inspect();
     bool fail(const std::string &msg);
+    // Parses an order id: raw, shard:seq, $last, or $N (Nth acked order)
+    bool parse_id(const std::string &s, OrderId &id);
+    std::string fmt_id(OrderId id) const;
+    std::vector<OrderId> acked_;
 
     Session &s_;
     std::ostream &out_;

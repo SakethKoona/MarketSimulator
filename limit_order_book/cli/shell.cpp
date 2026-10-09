@@ -1,4 +1,5 @@
 #include "shell.hpp"
+#include "remote_session.hpp"
 #include "orderbook.hpp"
 #include <algorithm>
 #include <cctype>
@@ -58,6 +59,39 @@ const char *side_name(Side s) { return s == Side::Buy ? "buy" : "sell"; }
 Shell::Shell(Session &session, std::ostream &out, std::ostream &err)
     : s_(session), out_(out), err_(err) {}
 
+bool Shell::parse_id(const std::string &s, OrderId &id) {
+    if (!s.empty() && s[0] == '$') {
+        if (s == "$last") {
+            if (acked_.empty())
+                return false;
+            id = acked_.back();
+            return true;
+        }
+        uint64_t n;
+        if (!parse_u64(s.substr(1), n) || n == 0 || n > acked_.size())
+            return false;
+        id = acked_[n - 1];
+        return true;
+    }
+    auto c = s.find(':');
+    if (c != std::string::npos) {
+        uint64_t shard, seq;
+        if (!parse_u64(s.substr(0, c), shard) || !parse_u64(s.substr(c + 1), seq) ||
+            shard >= kMaxShards)
+            return false;
+        id = make_order_id(static_cast<ShardId>(shard), seq);
+        return true;
+    }
+    return parse_u64(s, id);
+}
+
+std::string Shell::fmt_id(OrderId id) const {
+    if (shard_of(id) == 0)
+        return std::to_string(id);
+    return std::to_string(id) + " (" + std::to_string(shard_of(id)) + ":" +
+           std::to_string(seq_of(id)) + ")";
+}
+
 bool Shell::fail(const std::string &msg) {
     err_ << "error: " << msg << "\n";
     failures++;
@@ -75,6 +109,11 @@ bool Shell::need_inspect() {
 int Shell::Repl(std::istream &in, bool interactive) {
     std::string line;
     while (true) {
+        // Anything that arrived while idle: passive fills, exchange cancels
+        print_fills();
+        if (auto *remote = dynamic_cast<RemoteSession *>(&s_))
+            for (const std::string &n : remote->TakeNotices())
+                out_ << COLORS::yellow << "notice: " << n << COLORS::reset << "\n";
         if (interactive) {
             out_ << COLORS::bold << "mktsim> " << COLORS::reset << std::flush;
         }
@@ -160,6 +199,8 @@ void Shell::help() {
             "  events [N]          last N events (default: all pending)\n"
             "  flow SYM N [SEED]   run N synthetic ops on SYM\n"
             "  symbols\n"
+            "ids: raw (as on the feed), shard:seq, $last (last acked order),\n"
+            "     or $N (Nth acked order in this session)\n"
             "session\n"
             "  echo on|off         print events after every command\n"
             "  expect ok|reject CMD   assert an order command's outcome\n"
@@ -218,7 +259,8 @@ void Shell::report(const OrderOutcome &o) {
         out_ << "\n";
         return;
     }
-    out_ << COLORS::green << "order " << o.order_id << COLORS::reset;
+    acked_.push_back(o.order_id);
+    out_ << COLORS::green << "order " << fmt_id(o.order_id) << COLORS::reset;
     switch (o.fill) {
     case FillStatus::Accepted:
         out_ << " resting " << o.remaining;
@@ -250,8 +292,8 @@ void Shell::print_fills() {
 
 bool Shell::cmd_cancel(const Args &a) {
     uint64_t id;
-    if (a.size() != 2 || !parse_u64(a[1], id))
-        return fail("usage: cancel ID");
+    if (a.size() != 2 || !parse_id(a[1], id))
+        return fail("usage: cancel ID   (ID: raw, shard:seq, $last, $N)");
     StatusCode sc = s_.Cancel(id);
     note_result(sc == StatusCode::Success);
     if (sc != StatusCode::Success) {
@@ -269,7 +311,7 @@ bool Shell::cmd_modify(const Args &a) {
     // modify ID QTY [@ PRICE]
     uint64_t id, qty, price;
     std::optional<Price> px;
-    if (a.size() < 3 || !parse_u64(a[1], id) || !parse_u64(a[2], qty))
+    if (a.size() < 3 || !parse_id(a[1], id) || !parse_u64(a[2], qty))
         return fail("usage: modify ID QTY [@ PRICE]");
     if (a.size() == 5 && a[3] == "@" && parse_u64(a[4], price))
         px = price;
@@ -374,7 +416,7 @@ bool Shell::cmd_order_info(const Args &a) {
     if (!need_inspect())
         return true;
     uint64_t id;
-    if (a.size() != 2 || !parse_u64(a[1], id))
+    if (a.size() != 2 || !parse_id(a[1], id))
         return fail("usage: order ID");
     Exchange &ex = *s_.exchange();
     auto sym = ex.SymbolOfOrder(id);
@@ -387,7 +429,7 @@ bool Shell::cmd_order_info(const Args &a) {
     int ahead = 0;
     for (const OrderNode *p = n->prev; p; p = p->prev)
         ahead++;
-    out_ << "order " << id << ": " << side_name(n->side) << " " << n->quantity
+    out_ << "order " << fmt_id(id) << ": " << side_name(n->side) << " " << n->quantity
          << " " << ex.TickerOf(*sym) << " @ " << n->price << ", shard "
          << (int)shard_of(id) << ", " << ahead << " ahead in queue, level qty "
          << n->level->TotalQuantity() << "\n";
@@ -480,6 +522,11 @@ bool Shell::cmd_flow(const Args &a) {
 
 bool Shell::cmd_symbols() {
     Exchange *ex = s_.exchange();
+    if (!ex) {
+        out_ << "(symbol list is not available over a connection; use the "
+                "tickers from the exchange config)\n";
+        return true;
+    }
     for (const std::string &t : s_.Tickers()) {
         out_ << t;
         if (ex)

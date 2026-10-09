@@ -1,0 +1,17 @@
+# Runs over BOE against a live exchange_server, from the repo root:
+#   ./gateway/build/exchange_server configs/default.json --rate 5 &
+#   ./limit_order_book/bin/mktsim connect 127.0.0.1:30000 limit_order_book/cli/scenarios/remote.txt
+# No book inspection over a connection. The synthetic flow sits near 10000,
+# so 9000/11000 rest and 10100+ crosses.
+expect ok buy AAPL 10 @ 9000
+expect ok modify $last 6
+expect ok modify $last 6 @ 9001
+expect ok cancel $last
+expect reject cancel $last
+expect ok sell AAPL 10 @ 11000
+expect ok buy AAPL 5 @ 10100 ioc
+expect ok buy AAPL 7 @ 10100 fok
+expect reject buy MSFT 1 @ 100
+expect reject buy AAPL 0 @ 100
+expect reject cancel 999999
+expect ok cancel $2

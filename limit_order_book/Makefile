@@ -130,7 +130,7 @@ $(CLI_TARGET): $(LIB_OBJECTS) $(CLI_OBJECTS)
 	@echo "Build complete: $(CLI_TARGET)"
 
 $(BUILD_DIR)/cli/%.o: $(CLI_DIR)/%.cpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -I$(CLI_DIR) -MMD -MP -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -I$(CLI_DIR) -I../gateway/include -MMD -MP -c $< -o $@
 
 cli-test: cli
 	@for f in $(CLI_DIR)/scenarios/*.txt; do \

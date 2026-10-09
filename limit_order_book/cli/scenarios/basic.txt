@@ -9,10 +9,11 @@ l2 AAPL
 # crosses 20 @ 151 and 30 of the 80 @ 152, rests nothing (IOC)
 buy AAPL 50 @ 152 ioc
 l2 AAPL
-# shrink the 100-lot, then move it up to the touch
-modify 1 60
-modify 1 60 @ 151
-order 1
+# shrink the first order, then move it up to the touch
+modify $1 60
+modify $1 60 @ 151
+order $1
 book AAPL
-cancel 1
+cancel $1
+expect reject cancel $1
 top
