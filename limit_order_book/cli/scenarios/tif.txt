@@ -1,0 +1,19 @@
+# Time-in-force behaviour, with assertions.
+expect ok sell NVDA 10 @ 100
+expect ok sell NVDA 10 @ 101
+# FOK for more than is available: rejected, book untouched
+expect reject buy NVDA 30 @ 101 fok
+# FOK that fits: fills 20 across two levels
+expect ok buy NVDA 20 @ 101 fok
+l2 NVDA
+# market into an empty opposite side: accepted but nothing done
+expect ok buy NVDA 5 market
+expect ok sell NVDA 5 @ 99
+expect ok buy NVDA 5 market
+# cancel of a filled order
+expect reject cancel 1
+# bad inputs
+expect reject buy NVDA 0 @ 100
+expect reject buy NVDA 5 @ 0
+expect reject buy MSFT 5 @ 100
+top

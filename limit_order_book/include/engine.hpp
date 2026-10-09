@@ -39,6 +39,11 @@ class MatchingEngine {
                    std::size_t numSymbols);
 
     ShardId Shard() const { return shard_; }
+    // Symbol of a resting order on this shard, if any
+    std::optional<SymbolId> SymbolOfOrder(OrderId id) const {
+        SymbolId s = symbolOf(id);
+        return s == kNoSymbol ? std::nullopt : std::optional<SymbolId>(s);
+    }
     bool Serves(SymbolId symId) const {
         return symId < books_vec_.size() && books_vec_[symId] != nullptr;
     }

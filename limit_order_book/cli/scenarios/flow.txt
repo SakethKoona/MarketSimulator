@@ -1,0 +1,5 @@
+# Synthetic flow, then inspect.
+flow GOOG 2000
+flow GOOG 2000 7
+top
+l2 GOOG 5

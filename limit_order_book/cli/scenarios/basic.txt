@@ -1,0 +1,18 @@
+# A resting book, a crossing order, a modify and a cancel.
+echo on
+buy  AAPL 100 @ 150
+buy  AAPL 50  @ 149
+sell AAPL 80  @ 152
+sell AAPL 20  @ 151
+top
+l2 AAPL
+# crosses 20 @ 151 and 30 of the 80 @ 152, rests nothing (IOC)
+buy AAPL 50 @ 152 ioc
+l2 AAPL
+# shrink the 100-lot, then move it up to the touch
+modify 1 60
+modify 1 60 @ 151
+order 1
+book AAPL
+cancel 1
+top

@@ -75,6 +75,14 @@ const std::unordered_map<Symbol, SymbolId> &Exchange::Symbols() const {
     return stock_registry_;
 }
 
+const Symbol &Exchange::TickerOf(SymbolId sym_id) const {
+    static const Symbol empty;
+    for (const auto &[name, id] : stock_registry_)
+        if (id == sym_id)
+            return name;
+    return empty;
+}
+
 /* ---------------- Symbol-name API ---------------- */
 
 FillResult Exchange::SubmitOrder(const Symbol &symbol, Price price,

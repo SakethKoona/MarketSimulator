@@ -37,6 +37,16 @@ class Exchange {
     StatusCode ModifyOrder(OrderId id, Quantity newQty,
                            std::optional<Price> newPrice = std::nullopt);
 
+    // Symbol of a resting order, or nullopt if it is not on any book
+    std::optional<SymbolId> SymbolOfOrder(OrderId id) const {
+        ShardId s = shard_of(id);
+        if (s >= shards_.size())
+            return std::nullopt;
+        return shards_[s]->engine.SymbolOfOrder(id);
+    }
+    // Ticker for a symbol id, or "" if unknown
+    const Symbol &TickerOf(SymbolId sym_id) const;
+
     // Symbol registry, for session bootstrap messages
     std::optional<SymbolId> ResolveSymbol(const Symbol &symbol) const;
     const std::unordered_map<Symbol, SymbolId> &Symbols() const;
