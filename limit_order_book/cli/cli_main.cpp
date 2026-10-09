@@ -4,21 +4,29 @@
 //   mktsim run SCRIPT [config]   run commands from a file ("-" for stdin)
 //   mktsim connect [host:port] [SCRIPT|-]
 //                                same commands over BOE to a running exchange
+//   mktsim tui [feedviz args]    open the feed TUI (clients/feedviz)
 //
 // Config defaults to configs/default.json found relative to the working
 // directory (see Exchange::LoadConfig).
 #include "remote_session.hpp"
 #include "session.hpp"
 #include "shell.hpp"
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <unistd.h>
+#include <cstring>
+#include <vector>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 static int usage() {
     std::cerr << "usage:\n"
                  "  mktsim shell [config.json]\n"
                  "  mktsim run SCRIPT|- [config.json]\n"
-                 "  mktsim connect [host:port] [SCRIPT|-]\n";
+                 "  mktsim connect [host:port] [SCRIPT|-]\n"
+                 "  mktsim tui [feedviz args]\n";
     return 2;
 }
 
@@ -40,10 +48,84 @@ static json load_cfg(const char *path) {
     throw std::runtime_error(msg);
 }
 
+// Directory of this executable, or "" if unknown
+static std::filesystem::path self_dir() {
+    std::string p;
+#ifdef __APPLE__
+    char buf[4096];
+    uint32_t n = sizeof buf;
+    if (_NSGetExecutablePath(buf, &n) == 0)
+        p = buf;
+#else
+    std::error_code ec;
+    auto link = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec)
+        p = link.string();
+#endif
+    if (p.empty())
+        return {};
+    std::error_code ec;
+    auto canon = std::filesystem::weakly_canonical(p, ec);
+    return (ec ? std::filesystem::path(p) : canon).parent_path();
+}
+
+// Finds the feedviz TUI binary: next to this binary's repo, or relative
+// to the working directory, or on PATH.
+static std::string find_feedviz() {
+    namespace fs = std::filesystem;
+    const fs::path rel = "clients/feedviz/target/release/feedviz";
+    std::vector<fs::path> candidates;
+    fs::path here = self_dir();
+    if (!here.empty()) {
+        // bin/mktsim -> limit_order_book -> repo root
+        candidates.push_back(here / ".." / ".." / rel);
+        candidates.push_back(here / ".." / rel);
+    }
+    for (const char *base : {".", "..", "../.."})
+        candidates.push_back(fs::path(base) / rel);
+    for (const auto &c : candidates) {
+        std::error_code ec;
+        if (fs::is_regular_file(c, ec))
+            return fs::weakly_canonical(c, ec).string();
+    }
+    return "feedviz"; // let execvp search PATH
+}
+
+// mktsim tui [args]: replaces this process with feedviz.
+static int run_tui(int argc, char **argv) {
+    std::string bin = find_feedviz();
+    std::vector<std::string> args{bin};
+    bool have_iface = false, replay = false;
+    for (int i = 2; i < argc; i++) {
+        std::string a = argv[i];
+        if (a == "--iface") have_iface = true;
+        if (a == "--replay") replay = true;
+        args.push_back(a);
+    }
+#ifdef __APPLE__
+    // Same-host multicast on macOS needs the loopback interface, matching
+    // "interface": "127.0.0.1" in the config's feed block.
+    if (!have_iface && !replay) {
+        args.push_back("--iface");
+        args.push_back("127.0.0.1");
+    }
+#endif
+    std::vector<char *> cargv;
+    for (auto &s : args)
+        cargv.push_back(s.data());
+    cargv.push_back(nullptr);
+    execvp(bin.c_str(), cargv.data());
+    std::cerr << "mktsim: cannot run the TUI (" << bin << "): " << std::strerror(errno)
+              << "\nBuild it first:\n  cd clients/feedviz && cargo build --release\n";
+    return 1;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2)
         return usage();
     std::string mode = argv[1];
+    if (mode == "tui")
+        return run_tui(argc, argv);
 
     try {
         if (mode == "shell") {

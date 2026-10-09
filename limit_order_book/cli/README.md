@@ -8,6 +8,7 @@ make cli                                   # builds bin/mktsim
 bin/mktsim shell [config.json]             # interactive, in-process exchange
 bin/mktsim run SCRIPT|- [config.json]      # script, in-process, exit 1 on failure
 bin/mktsim connect [host:port] [SCRIPT|-]  # same commands over BOE to exchange_server
+bin/mktsim tui [feedviz args]              # open the feed TUI (clients/feedviz)
 make cli-test                              # runs cli/scenarios/*.txt
 ```
 
@@ -61,6 +62,19 @@ and do nothing. Cancel and modify only work on orders this session placed.
 ```
 ./gateway/build/exchange_server configs/default.json --rate 5 &
 bin/mktsim connect 127.0.0.1:30000 cli/scenarios/remote/remote.txt
+```
+
+**tui** hands off to the Rust feed viewer, `clients/feedviz`, which
+subscribes to the multicast feed and draws every symbol's book live. Build it
+once with `cd clients/feedviz && cargo build --release`. Any arguments are
+passed through (`--replay FILE`, `--group`, `--port`, `--fps`, `--seconds`,
+`--headless`). On macOS `--iface 127.0.0.1` is added unless you pass your own
+`--iface` or `--replay`, matching the config's feed interface.
+
+```
+./gateway/build/exchange_server configs/default.json --rate 20000 &
+bin/mktsim tui
+bin/mktsim tui --replay ../clients/feedviz/testdata/capture.bin
 ```
 
 ## Scenarios
