@@ -206,7 +206,9 @@ class Session {
         int one = 1;
         ::setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
         boe::LoginRequest l{};
-        std::snprintf(l.session_sub_id, sizeof(l.session_sub_id) + 1, "%04d", idx_ % 10000);
+        char sub[8];
+        std::snprintf(sub, sizeof(sub), "%04d", idx_ % 10000);
+        std::memcpy(l.session_sub_id, sub, sizeof(l.session_sub_id)); // fixed-width, no terminator
         std::memcpy(l.username, "FLOW", 4);
         std::memset(l.password, ' ', sizeof(l.password));
         std::memcpy(l.password, "flow", 4);
