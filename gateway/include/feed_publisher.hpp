@@ -69,7 +69,10 @@ class FeedPublisher {
   public:
     using SymbolTable = std::vector<std::pair<SymbolId, std::string>>;
 
-    FeedPublisher(EventSink &sink, SymbolTable symbols, FeedConfig cfg);
+    // One sink per engine shard; all are merged into one Mold stream.
+    FeedPublisher(std::vector<EventSink *> sinks, SymbolTable symbols, FeedConfig cfg);
+    FeedPublisher(EventSink &sink, SymbolTable symbols, FeedConfig cfg)
+        : FeedPublisher(std::vector<EventSink *>{&sink}, std::move(symbols), std::move(cfg)) {}
     ~FeedPublisher();
 
     void start();
@@ -87,14 +90,14 @@ class FeedPublisher {
     void send_directory();
     std::uint64_t now_ns() const;
 
-    EventSink &sink_;
+    std::vector<EventSink *> sinks_;
     SymbolTable symbols_;
     FeedConfig cfg_;
     net::UdpMulticastSender sock_;
     mold::PacketBuilder packet_;
     RetransmitStore store_;
     FeedStats stats_;
-    FeedFramer framer_;
+    std::vector<FeedFramer> framers_; // one per sink
 
     std::thread thread_;
     std::atomic<bool> running_{false};
@@ -102,6 +105,6 @@ class FeedPublisher {
     std::uint64_t packet_open_ns_ = 0;
     std::uint64_t last_send_ns_ = 0;
     std::uint64_t last_dir_ns_ = 0;
-    std::uint64_t seen_drops_ = 0;
+    std::vector<std::uint64_t> seen_drops_; // per sink
     char scratch_[feed::kMaxMessageSize];
 };

@@ -11,6 +11,8 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <atomic>
+#include <memory>
 #include <random>
 #include <string>
 #include <thread>
@@ -130,48 +132,95 @@ int main(int argc, char **argv) {
     std::sort(table.begin(), table.end());
     std::sort(ids.begin(), ids.end());
 
-    FeedConfig fcfg = feed_config_from(cfg);
-    FeedPublisher pub(ex.Sink(), table, fcfg);
-    pub.start();
-    std::fprintf(stderr, "exchange_server: feed on %s:%u, %zu symbols, %.0f orders/s\n",
-                 fcfg.group.c_str(), fcfg.port, ids.size(), rate);
 
-    SpscRing<InboundCommand> commands(1 << 14);
-    SpscRing<OrderReport> reports(1 << 16);
-    EngineLoop loop(ex, commands, reports);
+    // One engine thread per shard. Each owns its EngineLoop, its command and
+    // report rings, and a synthetic generator restricted to its symbols, so
+    // no shard is ever touched by two threads.
+    const std::size_t shards = ex.NumShards();
+    std::vector<std::unique_ptr<SpscRing<InboundCommand>>> commands;
+    std::vector<std::unique_ptr<SpscRing<OrderReport>>> reports;
+    std::vector<SpscRing<InboundCommand> *> cmd_ptrs;
+    std::vector<SpscRing<OrderReport> *> rep_ptrs;
+    std::vector<EventSink *> sinks;
+    std::vector<std::vector<SymbolId>> shard_syms(shards);
+    std::vector<std::uint8_t> symbol_shard(ids.empty() ? 0 : ids.back() + 1, 0);
+    for (std::size_t i = 0; i < shards; ++i) {
+        commands.push_back(std::make_unique<SpscRing<InboundCommand>>(1 << 14));
+        reports.push_back(std::make_unique<SpscRing<OrderReport>>(1 << 16));
+        cmd_ptrs.push_back(commands.back().get());
+        rep_ptrs.push_back(reports.back().get());
+        sinks.push_back(&ex.Sink(i));
+    }
+    for (SymbolId id : ids) {
+        std::uint8_t sh = ex.ShardOf(id);
+        symbol_shard[id] = sh;
+        shard_syms[sh].push_back(id);
+    }
+
+    FeedConfig fcfg = feed_config_from(cfg);
+    FeedPublisher pub(sinks, table, fcfg);
+    pub.start();
+    std::fprintf(stderr, "exchange_server: feed on %s:%u, %zu symbols, %zu shard(s), %.0f orders/s\n",
+                 fcfg.group.c_str(), fcfg.port, ids.size(), shards, rate);
+
     BoeConfig bcfg = boe_config_from(cfg);
-    BoeServer boe(bcfg, commands, reports, ex.Symbols());
+    BoeServer boe(bcfg, cmd_ptrs, rep_ptrs, ex.Symbols(), symbol_shard);
     boe.start();
     std::fprintf(stderr, "exchange_server: BOE order entry on %s:%u\n", bcfg.bind.c_str(), bcfg.port);
 
-    FlowGenerator gen(ex, ids, 42);
     using clock = std::chrono::steady_clock;
     const auto start = clock::now();
-    auto last_report = start;
-    std::uint64_t orders = 0;
-    const double ns_per_order = rate > 0 ? 1e9 / rate : 0;
+    std::atomic<bool> stop{false};
+    std::atomic<std::uint64_t> total_orders{0};
+    std::atomic<std::uint64_t> total_live{0};
+    std::vector<std::thread> threads;
+    const double shard_rate = rate / static_cast<double>(shards);
+    const double ns_per_order = shard_rate > 0 ? 1e9 / shard_rate : 0;
 
+    for (std::size_t sh = 0; sh < shards; ++sh) {
+        threads.emplace_back([&, sh] {
+            EngineLoop loop(ex, sh, *commands[sh], *reports[sh]);
+            FlowGenerator gen(ex, shard_syms[sh], 42 + sh);
+            std::uint64_t orders = 0, last_live = 0;
+            const bool generate = rate > 0 && !shard_syms[sh].empty();
+            while (!stop.load(std::memory_order_relaxed)) {
+                bool worked = loop.pump() > 0;
+                if (generate) {
+                    double elapsed_ns = std::chrono::duration<double, std::nano>(clock::now() - start).count();
+                    if (orders * ns_per_order <= elapsed_ns) {
+                        gen.step();
+                        ++orders;
+                        total_orders.fetch_add(1, std::memory_order_relaxed);
+                        worked = true;
+                    }
+                }
+                std::uint64_t live = gen.live();
+                if (live != last_live) {
+                    total_live.fetch_add(live - last_live, std::memory_order_relaxed);
+                    last_live = live;
+                }
+                if (!worked)
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+            }
+        });
+    }
+
+    auto last_report = start;
     while (!g_stop) {
         auto now = clock::now();
         double elapsed_ns = std::chrono::duration<double, std::nano>(now - start).count();
         if (seconds > 0 && elapsed_ns >= seconds * 1e9)
             break;
-        bool worked = loop.pump() > 0;
-        if (rate > 0 && orders * ns_per_order <= elapsed_ns) {
-            gen.step();
-            ++orders;
-            worked = true;
-        }
-        if (!worked)
-            std::this_thread::sleep_for(std::chrono::microseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
         if (!quiet && now - last_report >= std::chrono::seconds(1)) {
             last_report = now;
             const auto &s = pub.stats();
             std::fprintf(stderr,
-                         "[%6.1fs] orders=%llu live=%zu | feed msgs=%llu pkts=%llu hb=%llu "
+                         "[%6.1fs] orders=%llu live=%llu | feed msgs=%llu pkts=%llu hb=%llu "
                          "next_seq=%llu drops=%llu unpaired=%llu send_err=%llu errno=%d | "
                          "boe sess=%llu in=%llu rej=%llu out=%llu\n",
-                         elapsed_ns / 1e9, (unsigned long long)orders, gen.live(),
+                         elapsed_ns / 1e9, (unsigned long long)total_orders.load(),
+                         (unsigned long long)total_live.load(),
                          (unsigned long long)s.messages.load(), (unsigned long long)s.packets.load(),
                          (unsigned long long)s.heartbeats.load(), (unsigned long long)s.next_seq.load(),
                          (unsigned long long)s.engine_drops.load(),
@@ -183,6 +232,10 @@ int main(int argc, char **argv) {
                          (unsigned long long)boe.stats().reports_out.load());
         }
     }
+    stop.store(true);
+    for (auto &t : threads)
+        t.join();
+    const std::uint64_t orders = total_orders.load();
     boe.stop();
     pub.stop();
     const auto &s = pub.stats();

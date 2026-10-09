@@ -203,13 +203,16 @@ Two sequence spaces exist and must not be confused:
 
 - **MoldUDP64 `sequence_number`** is transport level. It counts messages on
   the stream and is what gap detection uses.
-- **`book_seq`** is the matching engine's sequence. It is global across
-  symbols and strictly increasing in the order the engine applied mutations.
+- **`book_seq`** is the matching engine's sequence. The engine is sharded
+  by symbol, so `book_seq` is strictly increasing **within a symbol** and
+  must not be compared across symbols. It is unique across the whole feed.
   Several messages can share one `book_seq` when they describe the same
   engine action (today none do on the wire, but clients must tolerate it).
+- **`order_id` and `match_id`** are unique across the whole feed. Their top
+  8 bits identify the engine shard; clients should treat them as opaque.
 
 Within one symbol, applying messages in stream order reproduces the book
-exactly.
+exactly. Across symbols the stream interleaves shards in no defined order.
 
 ## 5. Session bootstrap and snapshots
 

@@ -37,8 +37,12 @@ class BoeServer {
   public:
     using SymbolMap = std::unordered_map<std::string, SymbolId>;
 
-    BoeServer(BoeConfig cfg, SpscRing<InboundCommand> &commands,
-              SpscRing<OrderReport> &reports, SymbolMap symbols);
+    // One command ring and one report ring per shard, indexed alike.
+    // symbol_shard maps symbol_id -> shard; order ids carry their shard in
+    // the top 8 bits (shard_of in common.hpp).
+    BoeServer(BoeConfig cfg, std::vector<SpscRing<InboundCommand> *> commands,
+              std::vector<SpscRing<OrderReport> *> reports, SymbolMap symbols,
+              std::vector<std::uint8_t> symbol_shard);
     ~BoeServer();
 
     void start();
@@ -91,6 +95,7 @@ class BoeServer {
     void handle_cancel(std::uint32_t si, const boe::CancelOrder &m);
     void handle_modify(std::uint32_t si, const boe::ModifyOrder &m);
     void drain_reports();
+    bool push_command(const InboundCommand &c, std::size_t shard);
     void on_report(const OrderReport &r);
 
     template <typename Body>
@@ -103,9 +108,10 @@ class BoeServer {
     std::uint64_t now_ns() const;
 
     BoeConfig cfg_;
-    SpscRing<InboundCommand> &commands_;
-    SpscRing<OrderReport> &reports_;
+    std::vector<SpscRing<InboundCommand> *> commands_;
+    std::vector<SpscRing<OrderReport> *> reports_;
     SymbolMap symbols_;
+    std::vector<std::uint8_t> symbol_shard_;
     std::vector<std::string> tickers_; // symbol_id -> padded ticker
     BoeStats stats_;
 

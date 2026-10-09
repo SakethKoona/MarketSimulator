@@ -42,6 +42,7 @@ $(BUILD)/%_test: tests/%_test.cpp | $(BUILD)
 
 test: $(TESTS)
 	@for t in $(TESTS); do ./$$t || exit 1; done
+	@./$(BUILD)/feed_reconstruct_test 100000 3
 
 clean:
 	rm -rf $(BUILD)

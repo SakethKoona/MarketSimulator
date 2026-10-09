@@ -54,10 +54,13 @@ const char *reject_text_for(StatusCode s) {
 
 } // namespace
 
-BoeServer::BoeServer(BoeConfig cfg, SpscRing<InboundCommand> &commands,
-                     SpscRing<OrderReport> &reports, SymbolMap symbols)
-    : cfg_(std::move(cfg)), commands_(commands), reports_(reports),
-      symbols_(std::move(symbols)) {
+BoeServer::BoeServer(BoeConfig cfg, std::vector<SpscRing<InboundCommand> *> commands,
+                     std::vector<SpscRing<OrderReport> *> reports, SymbolMap symbols,
+                     std::vector<std::uint8_t> symbol_shard)
+    : cfg_(std::move(cfg)), commands_(std::move(commands)), reports_(std::move(reports)),
+      symbols_(std::move(symbols)), symbol_shard_(std::move(symbol_shard)) {
+    if (commands_.empty() || commands_.size() != reports_.size())
+        throw std::runtime_error("BoeServer: need one command and one report ring per shard");
     std::size_t n = 0;
     for (auto &[name, id] : symbols_)
         if (id + 1 > n)
@@ -459,10 +462,9 @@ void BoeServer::handle_new(std::uint32_t si, const boe::NewOrder &m) {
     c.qty = m.qty;
     c.price = m.price;
     c.ts_ns = now_ns();
-    if (!commands_.try_push(c)) {
-        stats_.ring_full.fetch_add(1, std::memory_order_relaxed);
+    std::size_t shard = c.symbol_id < symbol_shard_.size() ? symbol_shard_[c.symbol_id] : 0;
+    if (!push_command(c, shard))
         return reject(si, cl, boe::reject_reason::Other, "exchange busy");
-    }
     // Reserve the cl_ord_id now so a duplicate sent before the ack is caught.
     s.clords[key_of(m.cl_ord_id)] = 0;
     pending_[c.request_id] = Pending{si, s.gen, cl, cl, CommandType::NewOrder, m.price};
@@ -482,10 +484,8 @@ void BoeServer::handle_cancel(std::uint32_t si, const boe::CancelOrder &m) {
     c.type = CommandType::Cancel;
     c.order_id = it->second;
     c.ts_ns = now_ns();
-    if (!commands_.try_push(c)) {
-        stats_.ring_full.fetch_add(1, std::memory_order_relaxed);
+    if (!push_command(c, shard_of(c.order_id)))
         return reject(si, cl, boe::reject_reason::Other, "exchange busy");
-    }
     pending_[c.request_id] = Pending{si, s.gen, cl, cl, CommandType::Cancel, 0};
 }
 
@@ -510,17 +510,33 @@ void BoeServer::handle_modify(std::uint32_t si, const boe::ModifyOrder &m) {
     c.qty = m.qty;
     c.price = m.price;
     c.ts_ns = now_ns();
-    if (!commands_.try_push(c)) {
-        stats_.ring_full.fetch_add(1, std::memory_order_relaxed);
+    if (!push_command(c, shard_of(c.order_id)))
         return reject(si, cl, boe::reject_reason::Other, "exchange busy");
-    }
     pending_[c.request_id] = Pending{si, s.gen, cl, orig, CommandType::Modify, m.price};
 }
 
+bool BoeServer::push_command(const InboundCommand &c, std::size_t shard) {
+    if (shard >= commands_.size() || !commands_[shard]->try_push(c)) {
+        stats_.ring_full.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    return true;
+}
+
 void BoeServer::drain_reports() {
+    // Round-robin over shards, bounded per shard per pass so one busy shard
+    // cannot starve the others.
     OrderReport r;
-    while (reports_.try_pop(r))
-        on_report(r);
+    bool any = true;
+    while (any) {
+        any = false;
+        for (auto *ring : reports_) {
+            for (int i = 0; i < 64 && ring->try_pop(r); ++i) {
+                on_report(r);
+                any = true;
+            }
+        }
+    }
 }
 
 void BoeServer::on_report(const OrderReport &r) {

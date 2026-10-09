@@ -22,8 +22,10 @@ struct ClientBook {
     std::unordered_map<std::uint64_t, COrder> orders;
     // sym -> side -> price -> level
     std::map<std::uint32_t, std::map<std::uint8_t, std::map<std::uint64_t, CLevel>>> levels;
-    std::uint64_t volume = 0, fills = 0, max_match = 0;
+    std::uint64_t volume = 0, fills = 0;
     std::unordered_map<std::uint64_t, bool> match_ids;
+    // Per shard: count of fills and the highest per-shard sequence seen.
+    std::map<std::uint8_t, std::pair<std::uint64_t, std::uint64_t>> per_shard;
 
     void add(std::uint32_t sym, std::uint8_t side, std::uint64_t id, std::uint64_t px, std::uint32_t q) {
         assert(!orders.count(id) && "duplicate add");
@@ -74,7 +76,9 @@ struct ClientBook {
             volume += m.exec_qty; ++fills;
             assert(!match_ids.count(m.match_id) && "duplicate match id");
             match_ids[m.match_id] = true;
-            if (m.match_id > max_match) max_match = m.match_id;
+            auto &ps = per_shard[shard_of(m.match_id)];
+            ps.first++;
+            if (seq_of(m.match_id) > ps.second) ps.second = seq_of(m.match_id);
             if (m.remaining_qty == 0) remove(m.order_id); else shrink(m.order_id, m.remaining_qty);
             break;
         }
@@ -141,15 +145,26 @@ void compare_side(const Book &eng, const std::map<std::uint64_t, CLevel> &cli,
 
 int main(int argc, char **argv) {
     const int ops = argc > 1 ? std::atoi(argv[1]) : 200000;
+    const int shards = argc > 2 ? std::atoi(argv[2]) : 1;
     json cfg = {{"symbols", {{"AAA", json::object()}, {"BBB", json::object()}, {"CCC", json::object()}}},
-                {"sink_size", 1 << 16}, {"seq_capacity", 10}, {"num_symbols", 3}};
+                {"sink_size", 1 << 16}, {"seq_capacity", 10}, {"num_symbols", 3},
+                {"shards", shards}};
     Exchange ex(cfg);
-    FeedFramer framer(ex.Sink());
+    // One framer per shard sink, exactly as the publisher does it.
+    std::vector<FeedFramer> framers;
+    for (std::size_t i = 0; i < ex.NumShards(); ++i)
+        framers.emplace_back(ex.Sink(i));
     ClientBook client;
     char buf[feed::kMaxMessageSize];
     auto drain = [&] {
-        while (std::uint16_t n = framer.next(buf, 0))
-            client.apply(buf, n);
+        for (auto &framer : framers)
+            while (std::uint16_t n = framer.next(buf, 0))
+                client.apply(buf, n);
+    };
+    auto unpaired = [&] {
+        std::uint64_t u = 0;
+        for (auto &f : framers) u += f.unpaired();
+        return u;
     };
 
     std::mt19937_64 rng(7);
@@ -196,7 +211,7 @@ int main(int argc, char **argv) {
     }
     drain();
     (void)msgs;
-    assert(framer.unpaired() == 0 && "every Execute must pair with a TradeFill");
+    assert(unpaired() == 0 && "every Execute must pair with a TradeFill");
 
     for (SymbolId sym : syms) {
         const OrderBook &eb = ex.GetBook(sym);
@@ -218,9 +233,12 @@ int main(int argc, char **argv) {
     // only), so the wire volume must be at least the submit tally. Match ids
     // are 1..N contiguous, so N == fills proves no fill was lost or doubled.
     assert(client.volume >= engine_volume && "wire volume < engine executed volume");
-    assert(client.max_match == client.fills && "match ids not contiguous: a fill was lost");
+    // Match ids are shard-tagged: within each shard the low bits run 1..N
+    // with N == fills seen for that shard, so no fill was lost or doubled.
+    for (auto &[shard, ps] : client.per_shard)
+        assert(ps.first == ps.second && "match ids not contiguous within shard: a fill was lost");
 
-    std::printf("feed_reconstruct_test: OK  ops=%d live_orders=%zu fills=%llu volume=%llu\n", ops,
+    std::printf("feed_reconstruct_test: OK  ops=%d shards=%d live_orders=%zu fills=%llu volume=%llu\n", ops, shards,
                 client.orders.size(), (unsigned long long)client.fills,
                 (unsigned long long)client.volume);
     return 0;

@@ -9,9 +9,11 @@
 
 class EngineLoop {
   public:
-    EngineLoop(Exchange &ex, SpscRing<InboundCommand> &commands,
+    // One EngineLoop per shard, driven by that shard's thread only. It
+    // must only receive commands for symbols/orders living on `shard`.
+    EngineLoop(Exchange &ex, std::size_t shard, SpscRing<InboundCommand> &commands,
                SpscRing<OrderReport> &reports)
-        : ex_(ex), commands_(commands), reports_(reports) {}
+        : ex_(ex), shard_(shard), commands_(commands), reports_(reports) {}
 
     // Applies up to max_commands and drains pending fills. Returns the
     // number of commands applied.
@@ -40,7 +42,7 @@ class EngineLoop {
 
     void drain_fills() {
         TradeFillEvent f;
-        while (ex_.Sink().fills().try_pop(f)) {
+        while (ex_.Sink(shard_).fills().try_pop(f)) {
             OrderReport a{};
             a.kind = ReportKind::Execution;
             a.symbol_id = static_cast<std::uint32_t>(f.symbol_id);
@@ -121,6 +123,7 @@ class EngineLoop {
     }
 
     Exchange &ex_;
+    std::size_t shard_;
     SpscRing<InboundCommand> &commands_;
     SpscRing<OrderReport> &reports_;
     std::uint64_t report_drops_ = 0;

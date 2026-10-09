@@ -56,11 +56,18 @@ static mold::PacketBuilder make_builder(const std::string &session) {
     return mold::PacketBuilder(s);
 }
 
-FeedPublisher::FeedPublisher(EventSink &sink, SymbolTable symbols, FeedConfig cfg)
-    : sink_(sink), symbols_(std::move(symbols)), cfg_(std::move(cfg)),
+FeedPublisher::FeedPublisher(std::vector<EventSink *> sinks, SymbolTable symbols,
+                             FeedConfig cfg)
+    : sinks_(std::move(sinks)), symbols_(std::move(symbols)), cfg_(std::move(cfg)),
       sock_(cfg_.group, cfg_.port, cfg_.interface, cfg_.ttl, cfg_.loop),
-      packet_(make_builder(cfg_.session)), store_(cfg_.retransmit_capacity),
-      framer_(sink) {}
+      packet_(make_builder(cfg_.session)), store_(cfg_.retransmit_capacity) {
+    if (sinks_.empty())
+        throw std::runtime_error("FeedPublisher: need at least one sink");
+    framers_.reserve(sinks_.size());
+    for (EventSink *s : sinks_)
+        framers_.emplace_back(*s);
+    seen_drops_.assign(sinks_.size(), 0);
+}
 
 FeedPublisher::~FeedPublisher() { stop(); }
 
@@ -148,23 +155,31 @@ void FeedPublisher::run() {
     while (running_.load(std::memory_order_relaxed)) {
         bool did_work = false;
 
-        // Engine overflow: events were lost. Skip the sequence by that many
-        // so clients see a gap instead of a silently wrong book.
-        std::uint64_t drops = sink_.dropped();
-        if (drops != seen_drops_) {
-            std::uint64_t lost = drops - seen_drops_;
-            seen_drops_ = drops;
-            flush();
-            next_seq_ += lost;
-            stats_.engine_drops.fetch_add(lost, std::memory_order_relaxed);
+        // Round-robin over shard sinks, a bounded batch per sink per pass
+        // so one busy shard cannot starve the others. Pairing is per sink,
+        // since each Execute/TradeFill pair is adjacent in its own ring.
+        std::uint64_t unpaired = 0;
+        for (std::size_t i = 0; i < sinks_.size(); ++i) {
+            // Engine overflow: events were lost. Skip the sequence by that
+            // many so clients see a gap instead of a silently wrong book.
+            std::uint64_t drops = sinks_[i]->dropped();
+            if (drops != seen_drops_[i]) {
+                std::uint64_t lost = drops - seen_drops_[i];
+                seen_drops_[i] = drops;
+                flush();
+                next_seq_ += lost;
+                stats_.engine_drops.fetch_add(lost, std::memory_order_relaxed);
+            }
+            for (int k = 0; k < 64; ++k) {
+                std::uint16_t n = framers_[i].next(scratch_, 50'000'000); // 50ms
+                if (!n)
+                    break;
+                did_work = true;
+                publish(scratch_, n);
+            }
+            unpaired += framers_[i].unpaired();
         }
-
-        if (std::uint16_t n = framer_.next(scratch_, 50'000'000)) { // 50ms
-            did_work = true;
-            publish(scratch_, n);
-            stats_.unpaired_executes.store(framer_.unpaired(),
-                                           std::memory_order_relaxed);
-        }
+        stats_.unpaired_executes.store(unpaired, std::memory_order_relaxed);
 
         // Re-read the clock after each send: flush() updates last_send_ns_,
         // and comparing it against an older `now` underflows (unsigned).
@@ -182,8 +197,9 @@ void FeedPublisher::run() {
     }
 
     // Drain whatever is left, then end the session.
-    while (std::uint16_t n = framer_.next(scratch_, 0))
-        publish(scratch_, n);
+    for (auto &f : framers_)
+        while (std::uint16_t n = f.next(scratch_, 0))
+            publish(scratch_, n);
     std::uint16_t n = feed::encode_system_event(feed::SystemEventCode::EndOfSession,
                                                 get_current_timestamp(), scratch_);
     publish(scratch_, n);
