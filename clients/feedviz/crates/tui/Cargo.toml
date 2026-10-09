@@ -1,0 +1,15 @@
+[package]
+name = "feedviz"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Terminal visualizer for the MarketSimulator feed"
+
+[[bin]]
+name = "feedviz"
+path = "src/main.rs"
+
+[dependencies]
+protocol = { path = "../protocol" }
+feed_client = { path = "../feed_client" }
+anyhow.workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "protocol"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Wire structs and framing for the MarketSimulator feed (docs/protocol/feed-v1.md)"
+
+[dependencies]
+zerocopy.workspace = true
+thiserror.workspace = true

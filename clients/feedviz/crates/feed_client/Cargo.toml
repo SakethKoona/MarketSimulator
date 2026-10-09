@@ -1,0 +1,14 @@
+[package]
+name = "feed_client"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Multicast ingest, sequencing, and L3 book reconstruction for the MarketSimulator feed"
+
+[dependencies]
+protocol = { path = "../protocol" }
+zerocopy.workspace = true
+socket2.workspace = true
+rtrb.workspace = true
+triple_buffer.workspace = true
+anyhow.workspace = true

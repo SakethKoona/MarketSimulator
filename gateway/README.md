@@ -22,9 +22,13 @@ needed. Requires the nlohmann JSON headers in `../limit_order_book/third_party`.
 ./gateway/build/feed_dump                       # another terminal
 ```
 
-`exchange_server` runs the engine with a synthetic order generator and the
-feed publisher. Flags: `--rate N` orders per second, `--seconds S` to stop
-automatically, `--quiet` to suppress the one-line-per-second stats.
+`exchange_server` runs the engine with a synthetic order generator, the feed
+publisher and the BOE gateway. Flags: `--rate N` orders per second (0 = no
+synthetic flow), `--seconds S` to stop automatically, `--quiet` to suppress
+the one-line-per-second stats, `--capture FILE` to append every sent packet
+to FILE (u32 little-endian length + raw MoldUDP64 packet) and, at shutdown,
+write `FILE.books.txt` with the final levels (`symbol_id side price qty
+count`). Captures are the replay and golden-test input for `clients/feedviz`.
 
 `feed_dump [group] [port] [iface]` joins the multicast group and prints every
 decoded message, heartbeats, gaps and duplicate packets.

@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/protocol", "crates/feed_client", "crates/tui"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+zerocopy = { version = "0.8", features = ["derive"] }
+socket2 = { version = "0.5", features = ["all"] }
+rtrb = "0.3"
+triple_buffer = "8"
+ratatui = "0.29"
+crossterm = "0.28"
+anyhow = "1"
+thiserror = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = 1

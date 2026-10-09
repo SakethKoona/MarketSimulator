@@ -1,6 +1,6 @@
 // exchange_server: runs the matching engine with the feed publisher and a
 // synthetic order-flow generator, until SIGINT.
-// Usage: exchange_server [config.json] [--rate N] [--seconds S] [--quiet]
+// Usage: exchange_server [config.json] [--rate N] [--seconds S] [--quiet] [--capture FILE]
 #include "exchange.hpp"
 #include "boe_server.hpp"
 #include "engine_loop.hpp"
@@ -111,10 +111,12 @@ int main(int argc, char **argv) {
     double rate = 1000; // orders per second
     double seconds = 0; // 0 = until SIGINT
     bool quiet = false;
+    std::string capture;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--rate") && i + 1 < argc) rate = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--quiet")) quiet = true;
+        else if (!std::strcmp(argv[i], "--capture") && i + 1 < argc) capture = argv[++i];
         else config_path = argv[i];
     }
     std::signal(SIGINT, on_sig);
@@ -158,6 +160,7 @@ int main(int argc, char **argv) {
     }
 
     FeedConfig fcfg = feed_config_from(cfg);
+    fcfg.capture_path = capture;
     FeedPublisher pub(sinks, table, fcfg);
     pub.start();
     std::fprintf(stderr, "exchange_server: feed on %s:%u, %zu symbols, %zu shard(s), %.0f orders/s\n",
@@ -236,6 +239,28 @@ int main(int argc, char **argv) {
     for (auto &t : threads)
         t.join();
     const std::uint64_t orders = total_orders.load();
+
+    // With --capture, also dump the final books so a client that replays
+    // the capture can check its reconstruction: one line per level,
+    // "symbol_id side price qty order_count", bids then asks per symbol.
+    if (!capture.empty()) {
+        std::string path = capture + ".books.txt";
+        if (FILE *f = std::fopen(path.c_str(), "w")) {
+            for (SymbolId id : ids) {
+                const OrderBook &b = ex.GetBook(id);
+                for (auto *n = b.bids().GetHead(); n; n = n->forward[0])
+                    std::fprintf(f, "%llu B %llu %llu %d\n", (unsigned long long)id,
+                                 (unsigned long long)n->value.price,
+                                 (unsigned long long)n->value.TotalQuantity(), n->value.GetSize());
+                for (auto *n = b.asks().GetHead(); n; n = n->forward[0])
+                    std::fprintf(f, "%llu S %llu %llu %d\n", (unsigned long long)id,
+                                 (unsigned long long)n->value.price,
+                                 (unsigned long long)n->value.TotalQuantity(), n->value.GetSize());
+            }
+            std::fclose(f);
+            std::fprintf(stderr, "exchange_server: wrote %s\n", path.c_str());
+        }
+    }
     boe.stop();
     pub.stop();
     const auto &s = pub.stats();

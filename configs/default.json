@@ -10,11 +10,11 @@
     "feed": {
         "group": "239.1.1.1",
         "port": 30001,
-        "interface": "",
+        "interface": "127.0.0.1",
         "session": "MKTSIM0001",
         "flush_us": 100,
         "heartbeat_ms": 1000,
-        "directory_s": 5,
+        "directory_s": 2,
         "ttl": 1,
         "loop": true,
         "retransmit_capacity": 65536
@@ -30,5 +30,5 @@
     },
     "seq_capacity": 10,
     "num_symbols": 3,
-    "shards": 1
+    "shards": 3
 }

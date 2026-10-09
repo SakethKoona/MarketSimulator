@@ -67,9 +67,35 @@ FeedPublisher::FeedPublisher(std::vector<EventSink *> sinks, SymbolTable symbols
     for (EventSink *s : sinks_)
         framers_.emplace_back(*s);
     seen_drops_.assign(sinks_.size(), 0);
+    if (!cfg_.capture_path.empty()) {
+        capture_ = std::fopen(cfg_.capture_path.c_str(), "wb");
+        if (!capture_)
+            throw std::runtime_error("cannot open capture file: " + cfg_.capture_path);
+        static char buf[1 << 20];
+        std::setvbuf(capture_, buf, _IOFBF, sizeof(buf));
+    }
 }
 
-FeedPublisher::~FeedPublisher() { stop(); }
+FeedPublisher::~FeedPublisher() {
+    stop();
+    if (capture_)
+        std::fclose(capture_);
+}
+
+// Capture file format: repeated records of u32 little-endian packet length
+// followed by the raw UDP payload (a MoldUDP64 packet), heartbeats included.
+void FeedPublisher::send_packet() {
+    if (sock_.send(packet_.data(), packet_.size()) < 0) {
+        stats_.send_errors.fetch_add(1, std::memory_order_relaxed);
+        stats_.last_errno.store(errno, std::memory_order_relaxed);
+    }
+    if (capture_) {
+        std::uint32_t len = static_cast<std::uint32_t>(packet_.size());
+        std::fwrite(&len, sizeof(len), 1, capture_);
+        std::fwrite(packet_.data(), 1, packet_.size(), capture_);
+    }
+    last_send_ns_ = now_ns();
+}
 
 std::uint64_t FeedPublisher::now_ns() const { return get_monotonic_ns(); }
 
@@ -106,24 +132,16 @@ void FeedPublisher::publish(const char *msg, std::uint16_t len) {
 void FeedPublisher::flush() {
     if (packet_.empty())
         return;
-    if (sock_.send(packet_.data(), packet_.size()) < 0) {
-        stats_.send_errors.fetch_add(1, std::memory_order_relaxed);
-        stats_.last_errno.store(errno, std::memory_order_relaxed);
-    }
+    send_packet();
     stats_.packets.fetch_add(1, std::memory_order_relaxed);
-    last_send_ns_ = now_ns();
     packet_.begin(next_seq_); // leaves it empty with the right seq
 }
 
 void FeedPublisher::send_control(std::uint16_t count) {
     flush();
     packet_.control(next_seq_, count);
-    if (sock_.send(packet_.data(), packet_.size()) < 0) {
-        stats_.send_errors.fetch_add(1, std::memory_order_relaxed);
-        stats_.last_errno.store(errno, std::memory_order_relaxed);
-    }
+    send_packet();
     packet_.begin(next_seq_);
-    last_send_ns_ = now_ns();
     if (count == 0)
         stats_.heartbeats.fetch_add(1, std::memory_order_relaxed);
 }
@@ -205,4 +223,6 @@ void FeedPublisher::run() {
     publish(scratch_, n);
     flush();
     send_control(mold::kEndOfSessionCount);
+    if (capture_)
+        std::fflush(capture_);
 }

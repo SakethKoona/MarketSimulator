@@ -10,6 +10,7 @@
 #include "udp_multicast.hpp"
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -29,6 +30,7 @@ struct FeedConfig {
     int ttl = 1;
     bool loop = true;
     std::size_t retransmit_capacity = 1u << 16; // messages kept for replay
+    std::string capture_path; // if set, every sent packet is appended here
 };
 
 // Last N encoded messages, indexed by Mold sequence number. Written by the
@@ -87,6 +89,7 @@ class FeedPublisher {
     void publish(const char *msg, std::uint16_t len); // appends, may flush
     void flush();
     void send_control(std::uint16_t count);
+    void send_packet(); // sends packet_ and captures it
     void send_directory();
     std::uint64_t now_ns() const;
 
@@ -106,5 +109,6 @@ class FeedPublisher {
     std::uint64_t last_send_ns_ = 0;
     std::uint64_t last_dir_ns_ = 0;
     std::vector<std::uint64_t> seen_drops_; // per sink
+    FILE *capture_ = nullptr;
     char scratch_[feed::kMaxMessageSize];
 };
