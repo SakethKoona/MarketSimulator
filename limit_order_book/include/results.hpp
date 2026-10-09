@@ -8,12 +8,16 @@ enum class StatusCode {
     Failed = 3,
     NotEnoughLiquidity = 4,
     FOKFailed = 5,
+    InvalidPrice = 6,
+    InvalidQuantity = 7,
+    DuplicateOrder = 8,
 };
 
 enum class FillStatus {
-    FullyFilled,
-    PartiallyFilled,
-    Rejected,
+    Accepted,        // rested on the book, nothing executed
+    PartiallyFilled, // some executed; remainder rested or was dropped (IOC)
+    FullyFilled,     // everything executed
+    Rejected,        // nothing executed and nothing rested
 };
 
 struct FillResult {
@@ -21,7 +25,8 @@ struct FillResult {
     FillStatus fill_status;
     StatusCode status_code;
     Quantity qty_executed;
-    Quantity qty_remaining;
+    Quantity qty_remaining; // unexecuted qty (resting on the book if `resting`)
+    bool resting;           // true if qty_remaining now rests on the book
 
     FillResult(OrderId id);
 };

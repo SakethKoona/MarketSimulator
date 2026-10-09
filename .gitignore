@@ -5,3 +5,6 @@ limit_order_book/logs/
 CLAUDE.md
 .claude/
 
+limit_order_book/build/
+limit_order_book/bin/
+.DS_Store

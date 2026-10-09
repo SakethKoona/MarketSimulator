@@ -18,7 +18,8 @@
 class Sequencer {
   public:
     Sequencer(std::size_t initial_capacity);
-    std::uint32_t next(std::size_t id) const;
+    std::uint64_t next(std::size_t id) const;
+    std::size_t size() const;
 
   private:
     std::unique_ptr<std::atomic<std::uint64_t>[]> counters;

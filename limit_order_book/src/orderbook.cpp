@@ -109,7 +109,7 @@ ModifyResult PriceLevel::ModifyOrder(OrderIterator &orderIt, Quantity newQty) {
     return ModifyResult::Success;
 }
 
-int PriceLevel::GetSize() { return size_; }
+int PriceLevel::GetSize() const { return size_; }
 
 Quantity PriceLevel::TotalQuantity() const { return totalQuantity; }
 

@@ -16,6 +16,7 @@ std::string levelToString(Level level) {
     case Level::ERROR:
         return "ERROR";
     }
+    return "UNKNOWN";
 }
 
 Logger::Logger(const std::string &filename)

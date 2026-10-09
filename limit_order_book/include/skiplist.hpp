@@ -133,7 +133,7 @@ template <typename Key, typename Value> class SkipList {
         return newNodePtr;
     }
 
-    int len() { return this->length_; }
+    int len() const { return this->length_; }
     SkipListNode<Key, Value> *getMax() { return tail; }
 
     SkipListNode<Key, Value> *GetHead() const { return head_ptr->forward[0]; }
@@ -193,16 +193,24 @@ template <typename Key, typename Value> class SkipList {
     ArenaPool<SkipListNode<Key, Value>> pool_;
     std::unordered_map<Key, SkipListNode<Key, Value> *> nodeLookup_;
 
+    // xorshift64: fast, no global state, deterministic per list
+    uint64_t rng_state_ = 0x9E3779B97F4A7C15ULL;
+
+    uint64_t nextRandom() {
+        uint64_t x = rng_state_;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        rng_state_ = x;
+        return x;
+    }
+
     int getRandomLevel() {
-        int rand_level = 0;
-        double random_variable;
-
-        do {
-            random_variable = static_cast<double>(std::rand()) / RAND_MAX;
-            rand_level++;
-
-        } while (random_variable > this->p && rand_level < MAX_HEIGHT);
-
-        return rand_level - 1;
+        // Promote with probability p at each level
+        const uint64_t threshold = static_cast<uint64_t>(p * 4294967296.0);
+        int level = 0;
+        while (level < MAX_HEIGHT - 1 && (nextRandom() >> 32) < threshold)
+            level++;
+        return level;
     }
 };

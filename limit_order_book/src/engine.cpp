@@ -10,13 +10,10 @@
 #include <string>
 
 using json = nlohmann::json;
-std::atomic<OrderId> MatchingEngine::nextOrderId_{1};
-std::atomic<TradeId> MatchingEngine::nextTradeId_{1};
-std::atomic<uint64_t> MatchingEngine::nextSeq_{1};
-
 FillResult::FillResult(OrderId id)
     : order_id(id), fill_status(FillStatus::Rejected),
-      status_code(StatusCode::Success), qty_executed(0) {}
+      status_code(StatusCode::Success), qty_executed(0), qty_remaining(0),
+      resting(false) {}
 
 bool IsPriceMoreAggressive(Price price, Price other, Side side) {
     if (price == other)
@@ -52,7 +49,8 @@ void MatchingEngine::InitBooks(std::size_t numSymbols) {
 FillResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
                                                Price price, Quantity quantity,
                                                Side side, OrderType type,
-                                               TypeInForce tif) {
+                                               TypeInForce tif,
+                                               BookAction rest_action) {
     // Avoid throwing for a missing symbol; return a rejected FillResult
     // instead.
     if (symId >= books_vec_.size()) {
@@ -61,10 +59,21 @@ FillResult MatchingEngine::SubmitOrderInternal(SymbolId symId, OrderId id,
         res.fill_status = FillStatus::Rejected;
         return res;
     }
+    if (quantity == 0) {
+        FillResult res(id);
+        res.status_code = StatusCode::InvalidQuantity;
+        res.fill_status = FillStatus::Rejected;
+        return res;
+    }
+    if (type == OrderType::LIMIT && price == 0) {
+        FillResult res(id);
+        res.status_code = StatusCode::InvalidPrice;
+        res.fill_status = FillStatus::Rejected;
+        return res;
+    }
 
     Order order = Order(id, price, quantity, type, tif, side);
-    FillResult res = FillOrder(order, symId);
-    return res;
+    return FillOrder(order, symId, rest_action);
 }
 
 FillResult MatchingEngine::SubmitOrder(SymbolId symId, Price price,
@@ -74,8 +83,8 @@ FillResult MatchingEngine::SubmitOrder(SymbolId symId, Price price,
     return SubmitOrderInternal(symId, id, price, quantity, side, type, tif);
 }
 
-OrderId MatchingEngine::nextOrderId() { return nextOrderId_++; }
 TradeId MatchingEngine::nextTradeId() { return nextTradeId_++; }
+uint64_t MatchingEngine::nextSeq() { return nextSeq_++; }
 
 bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
     Quantity remaining = incoming.quantity;
@@ -107,7 +116,8 @@ bool MatchingEngine::CanFillAll(const Order &incoming, const OrderBook &book) {
     return false;
 }
 
-FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id) {
+FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id,
+                                     BookAction rest_action) {
     // First, get the orderbook
     OrderBook &book = *books_vec_.at(sym_id);
     FillResult res = FillResult(incoming.orderId);
@@ -120,6 +130,10 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id) {
         res.status_code = StatusCode::FOKFailed;
         res.qty_executed = 0;
         res.fill_status = FillStatus::Rejected;
+        if (rest_action == BookAction::Replace) {
+            sink_.emit_cancel_event(sym_id, incoming.orderId, nextSeq(),
+                                    incoming.side, incoming.price);
+        }
         return res;
     }
 
@@ -149,40 +163,83 @@ FillResult MatchingEngine::FillOrder(Order &incoming, SymbolId sym_id) {
         }
 
         Quantity exec_quantity = std::min(incoming.quantity, resting.quantity);
+        Quantity resting_remaining = resting.quantity - exec_quantity;
 
-        if (exec_quantity == resting.quantity) {
-            // If the minimum of the two is the resting, then we cancel the
-            // resting and move on
+        // One book_seq covers both perspectives of this match
+        uint64_t seq = nextSeq();
+
+        if (resting_remaining == 0) {
+            // Resting order fully consumed: remove it from the book
             book.CancelOrder(resting.orderId);
+            orders_.erase(resting.orderId);
+            sink_.emit_cancel_event(sym_id, resting.orderId, seq,
+                                    resting.side, resting.price);
         } else {
-            // Otherwise, we Modify the qty of the remaining order, and the
-            // incoming becomes 0
-            book.ModifyOrder(resting.orderId, resting.orderId - exec_quantity);
+            // Resting order partially consumed: shrink it in place
+            book.ModifyOrder(resting.orderId, resting_remaining);
+            sink_.emit_execute_event(sym_id, resting.orderId, seq,
+                                     resting.side, resting.price,
+                                     resting_remaining);
         }
+
+        // Trade always executes at the resting price
+        sink_.emit_trade_event(sym_id, nextTradeId(), incoming.orderId,
+                               resting.orderId, incoming.side, resting.price,
+                               exec_quantity, seq);
+
         res.qty_executed += exec_quantity;
         incoming.quantity -= exec_quantity;
     }
 
-    // Handle GTC partial fills
+    // Handle unfilled remainder
     if (incoming.quantity > 0) {
-        res.fill_status = FillStatus::PartiallyFilled;
         res.status_code = StatusCode::Success;
         res.qty_remaining = incoming.quantity;
 
         if (incoming.orderType == OrderType::LIMIT &&
             incoming.typeInForce == TypeInForce::GTC) {
-            // Add it to the book
-            book.AddOrder(incoming);
-            res.qty_remaining = 0;
+            // Rest it on the book and remember which book it lives in
+            OrderResult added = book.AddOrder(incoming);
+            if (added != OrderResult::Success) {
+                res.fill_status = FillStatus::Rejected;
+                res.status_code = (added == OrderResult::DuplicateOrder)
+                                      ? StatusCode::DuplicateOrder
+                                      : StatusCode::Failed;
+                return res;
+            }
+            orders_[incoming.orderId] = sym_id;
+            sink_.emit_book_event(rest_action, sym_id, incoming.orderId,
+                                  nextSeq(), incoming.side, incoming.price,
+                                  incoming.quantity);
+            res.resting = true;
+            res.fill_status = (res.qty_executed == 0)
+                                  ? FillStatus::Accepted
+                                  : FillStatus::PartiallyFilled;
+            return res;
+        }
+
+        // Did not rest (IOC / market with no more liquidity)
+        res.fill_status = (res.qty_executed == 0) ? FillStatus::Rejected
+                                                  : FillStatus::PartiallyFilled;
+        if (rest_action == BookAction::Replace) {
+            // IOC/FOK/market replacement that did not rest: the old order
+            // is gone and nothing took its place
+            sink_.emit_cancel_event(sym_id, incoming.orderId, nextSeq(),
+                                    incoming.side, incoming.price);
         }
 
         return res;
     }
 
-    // Everythig has been filled
+    // Everything has been filled
     res.status_code = StatusCode::Success;
     res.fill_status = FillStatus::FullyFilled;
     res.qty_remaining = 0;
+    if (rest_action == BookAction::Replace) {
+        // Replacement was fully matched; close out the old resting order
+        sink_.emit_cancel_event(sym_id, incoming.orderId, nextSeq(),
+                                incoming.side, incoming.price);
+    }
     return res;
 }
 
@@ -203,19 +260,33 @@ StatusCode MatchingEngine::CancelOrder(OrderId id) {
         return StatusCode::OrderNotFound;
     }
 
-    // Then, we can just call cancel order
+    // Copy what we need before the book erases the order
+    Side side = cancelled->order->side;
+    Price price = cancelled->order->price;
+
     auto result = book.CancelOrder(id);
     if (result == OrderResult::Success) {
-        // Emit the event
-
-        sink_.emit_cancel_event(sym_id, id, MatchingEngine::nextSeq(),
-                                cancelled->order->side,
-                                cancelled->order->price);
-
+        orders_.erase(it);
+        sink_.emit_cancel_event(sym_id, id, MatchingEngine::nextSeq(), side,
+                                price);
         return StatusCode::Success;
     } else {
         return StatusCode::OrderNotFound;
     }
+}
+
+void MatchingEngine::ReplaceOrder(OrderBook &book, OrderId id, Price price,
+                                  Quantity qty, Side side, OrderType type,
+                                  TypeInForce tif) {
+    SymbolId sym_id = book.symId;
+
+    // Remove the old order without publishing a Delete. FillOrder publishes
+    // the outcome: any trades, then a Replace carrying the new resting state,
+    // or a Delete if nothing is left to rest.
+    book.CancelOrder(id);
+    orders_.erase(id);
+    SubmitOrderInternal(sym_id, id, price, qty, side, type, tif,
+                        BookAction::Replace);
 }
 
 StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
@@ -234,6 +305,11 @@ StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
     if (resting == nullptr)
         return StatusCode::OrderNotFound;
 
+    // Case 0: qty 0 is a cancel
+    if (newQty == 0) {
+        return CancelOrder(id);
+    }
+
     // Case 1: changing price OR higher quantity
     if (newPrice || newQty > resting->order->quantity) {
         // We cancel and create
@@ -244,31 +320,38 @@ StatusCode MatchingEngine::ModifyOrder(OrderId id, Quantity newQty,
         OrderType newType = resting->order->orderType;
         TypeInForce newTif = resting->order->typeInForce;
 
+        Price replacePrice = newPrice.value_or(oldPrice);
+
         // WARN: Dangerous if multithreaded, make this atomic
-        CancelOrder(resting->order->orderId);
-        SubmitOrderInternal(book.symId, newId, newPrice.value_or(oldPrice),
-                            newQty, newSide, newType, newTif);
+        // `resting` is invalid after this call; use the copies above.
+        // Replace is published as a single event rather than a Delete
+        // followed by an Add, so downstream clients keep the order's
+        // identity. Any matches the replacement triggers are emitted by
+        // FillOrder as usual.
+        ReplaceOrder(book, newId, replacePrice, newQty, newSide, newType,
+                     newTif);
     } else if (newQty < resting->order->quantity) {
-        book.ModifyOrder(resting->order->orderId, newQty);
+        Side side = resting->order->side;
+        Price price = resting->order->price;
+        if (book.ModifyOrder(id, newQty) == ModifyResult::Success) {
+            sink_.emit_modify_event(sym_id, id, nextSeq(), side, price,
+                                    newQty);
+        }
     }
 
     return StatusCode::Success;
 }
 
-void MatchingEngine::DisplayBook(SymbolId symId) {
-    try {
-        auto &ob = books_vec_.at(symId);
-        ob->Display();
-    } catch (std::out_of_range) {
-        throw std::runtime_error("Symbol Not Found");
-    }
+StatusCode MatchingEngine::DisplayBook(SymbolId symId) {
+    if (symId >= books_vec_.size())
+        return StatusCode::SymbolNotFound;
+    books_vec_[symId]->Display();
+    return StatusCode::Success;
 }
 
-void MatchingEngine::L2Snapshot(SymbolId symId) {
-    try {
-        auto &ob = books_vec_.at(symId);
-        ob->L2Snapshot();
-    } catch (std::out_of_range) {
-        throw std::runtime_error("Symbol Not Found");
-    }
+StatusCode MatchingEngine::L2Snapshot(SymbolId symId) {
+    if (symId >= books_vec_.size())
+        return StatusCode::SymbolNotFound;
+    books_vec_[symId]->L2Snapshot();
+    return StatusCode::Success;
 }

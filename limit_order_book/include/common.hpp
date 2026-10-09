@@ -18,9 +18,18 @@ using MatchNumber = uint64_t;
 using SymbolId = uint64_t;
 using Symbol = std::string;
 using TradeId = uint64_t;
-// Common reusable functions
+// Wall-clock nanoseconds since the Unix epoch. Used for everything that
+// leaves the process (events, order timestamps). high_resolution_clock is
+// steady_clock on libc++ (ns since boot), so it is wrong for a feed.
 inline Timestamp get_current_timestamp() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
-               std::chrono::high_resolution_clock::now().time_since_epoch())
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+// Monotonic nanoseconds, for latency measurement only.
+inline Timestamp get_monotonic_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
         .count();
 }
