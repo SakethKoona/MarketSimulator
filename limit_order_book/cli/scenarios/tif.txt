@@ -15,5 +15,5 @@ expect reject cancel 1
 # bad inputs
 expect reject buy NVDA 0 @ 100
 expect reject buy NVDA 5 @ 0
-expect reject buy MSFT 5 @ 100
+expect reject buy ZZZZ 5 @ 100
 top

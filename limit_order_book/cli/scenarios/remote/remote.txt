@@ -11,7 +11,7 @@ expect reject cancel $last
 expect ok sell AAPL 10 @ 11000
 expect ok buy AAPL 5 @ 10100 ioc
 expect ok buy AAPL 7 @ 10100 fok
-expect reject buy MSFT 1 @ 100
+expect reject buy ZZZZ 1 @ 100
 expect reject buy AAPL 0 @ 100
 expect reject cancel 999999
 expect ok cancel $2
