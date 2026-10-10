@@ -103,17 +103,18 @@ market data multicast group.
 
   ```
   my_flow/
-    strategy.py   YOURS: on_start(ex), on_report(ex, r), on_tick(ex)
+    strategy.py   YOURS: class MyStrategy(Strategy) with on_start / on_report / on_tick
     mktsim.py     generated client for the exchange's JSON-lines order entry
     README.md
   ```
 
-  `ex.buy(sym, qty, price)`, `ex.sell(...)`, `ex.cancel(id)`, `ex.modify(id, qty, price)`;
+  Your state lives on `self`; `self.ex` is the exchange: `buy`, `sell`,
+  `cancel`, `modify`, `cancel_all`, `orders(sym, side)`, `has_side`.
   `on_report` gets every ack, fill, cancel and reject on your orders;
   `on_tick` runs every 100 ms. The wizard enables the exchange's JSON-lines
   adapter on the port you choose. Run with `python3 my_flow/strategy.py`
-  once the exchange is up; the example quotes a bid and an ask and prints
-  its fills.
+  once the exchange is up; the example is a small market maker that leans
+  its quotes against its inventory and prints its fills.
 
   **C++ adapter**, for a custom wire protocol (FIX, your binary format):
   a plugin project the exchange loads in-process. The TCP listening,
