@@ -5,10 +5,14 @@
 //   mktsim connect [host:port] [SCRIPT|-]
 //                                same commands over BOE to a running exchange
 //   mktsim tui [feedviz args]    open the feed TUI (clients/feedviz)
+//   mktsim up [config] [--flow calm|busy|load|off]
+//                                start exchange_server as a daemon
+//   mktsim down | status | logs [-f]
 //
 // Config defaults to configs/default.json found relative to the working
 // directory (see Exchange::LoadConfig).
 #include "remote_session.hpp"
+#include "service.hpp"
 #include "session.hpp"
 #include "shell.hpp"
 #include <filesystem>
@@ -26,7 +30,9 @@ static int usage() {
                  "  mktsim shell [config.json]\n"
                  "  mktsim run SCRIPT|- [config.json]\n"
                  "  mktsim connect [host:port] [SCRIPT|-]\n"
-                 "  mktsim tui [feedviz args]\n";
+                 "  mktsim tui [feedviz args]\n"
+                 "  mktsim up [config.json] [--flow calm|busy|load|off]\n"
+                 "  mktsim down | status | logs [-f] [-n N]\n";
     return 2;
 }
 
@@ -135,6 +141,14 @@ int main(int argc, char **argv) {
     std::string mode = argv[1];
     if (mode == "tui")
         return run_tui(argc, argv);
+    if (mode == "up")
+        return service::cmd_up(argc, argv);
+    if (mode == "down")
+        return service::cmd_down(argc, argv);
+    if (mode == "status")
+        return service::cmd_status(argc, argv);
+    if (mode == "logs")
+        return service::cmd_logs(argc, argv);
 
     try {
         if (mode == "shell") {

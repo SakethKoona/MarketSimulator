@@ -10,6 +10,8 @@ mktsim shell [config.json]                 # interactive, in-process exchange
 mktsim run SCRIPT|- [config.json]      # script, in-process, exit 1 on failure
 mktsim connect [host:port] [SCRIPT|-]  # same commands over BOE to exchange_server
 mktsim tui [feedviz args]              # open the feed TUI (clients/feedviz)
+mktsim up [config] [--flow calm|busy|load|off]   # start the exchange as a daemon
+mktsim down | status | logs [-f]       # stop it, inspect it, read its log
 make cli-test                              # runs cli/scenarios/*.txt
 ```
 
@@ -80,6 +82,24 @@ passed through (`--replay FILE`, `--group`, `--port`, `--fps`, `--seconds`,
 mktsim tui
 mktsim tui --replay ../clients/feedviz/testdata/capture.bin
 ```
+
+## Running the exchange as a service
+
+```
+mktsim up                     # exchange_server --daemon with configs/default.json
+mktsim up --flow busy         # same, with the built-in flowgen set to the busy profile
+mktsim up --flow off          # no synthetic flow: bring your own ingress
+mktsim status                 # pid, uptime, symbols, shards, ports, last log line
+mktsim logs -f                # follow the log
+mktsim tui                    # attach the TUI whenever
+mktsim down                   # graceful stop (SIGTERM, waits up to 10 s)
+```
+
+The exchange keeps running until `mktsim down`, independent of any terminal.
+State lives in `${XDG_STATE_HOME:-~/.local/state}/mktsim/`: `exchange.pid`,
+`exchange.log`, and with `--flow` the derived `exchange.json` that was
+actually passed to the server. `exchange_server --daemon|--stop|--status`
+use the same files, so the two tools agree.
 
 ## Scenarios
 

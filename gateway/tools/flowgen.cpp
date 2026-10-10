@@ -10,6 +10,7 @@
 //           [--seconds S] [--symbols AAPL,GOOG,NVDA | --config configs/default.json] [--seed K] [--quiet]
 // Without --symbols, the symbol list is read from --config (default:
 // configs/default.json, then ../configs/default.json).
+#include "flow/model.hpp"
 #include "protocol/boe.hpp"
 #include "nlohmann/json.hpp"
 #include <fstream>
@@ -69,83 +70,43 @@ struct Config {
     bool quiet = false;
 };
 
-// One BOE session on one thread: paces new orders, reads reports.
+// One BOE session on one thread: paces the shared market model's actions
+// over BOE and feeds its reports back to the model.
 class Session {
   public:
-    Session(int idx, const Config &cfg, Totals &tot) : idx_(idx), cfg_(cfg), tot_(tot), rng_(cfg.seed * 7919 + idx) {
-        mid_.assign(cfg.symbols.size(), 10000);
-        // Each symbol gets its own fundamental and volatility so the
-        // monitor shows a spread of behaviours rather than one clock.
-        for (std::size_t i = 0; i < cfg.symbols.size(); ++i) {
-            std::uint64_t base = 2000 + (hash(cfg.symbols[i]) % 60) * 500; // 2,000 .. 31,500
-            fund_.push_back(static_cast<double>(base));
-            mid_[i] = base;
-            vol_.push_back(0.0004 + (hash(cfg.symbols[i] + "v") % 10) * 0.0002);
-            trend_.push_back(0.0);
-        }
-        regime_until_ = mono_ns();
-    }
-
-    static std::uint64_t hash(const std::string &s) {
-        std::uint64_t h = 1469598103934665603ull;
-        for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
-        return h;
-    }
-
-    // Activity multiplier: a sticky regime (quiet / normal / burst) per
-    // session with exponential holding times, so the tape breathes.
-    double activity() {
-        const std::uint64_t now = mono_ns();
-        if (now >= regime_until_) {
-            unsigned r = rng_() % 100;
-            activity_ = r < 25 ? 0.4 : r < 85 ? 1.0 : 4.0;
-            double mean_s = activity_ > 1.5 ? 1.5 : activity_ < 0.5 ? 6.0 : 10.0;
-            std::exponential_distribution<double> ex(1.0 / mean_s);
-            regime_until_ = now + static_cast<std::uint64_t>(ex(rng_) * 1e9) + 200'000'000ull;
-        }
-        return activity_;
-    }
+    Session(int idx, const Config &cfg, Totals &tot)
+        : idx_(idx), cfg_(cfg), tot_(tot), model_(cfg.symbols.size(), cfg.symbols, cfg.seed * 7919 + idx) {}
 
     void run() {
         if (!connect_and_login())
             return;
         const double per_sec = cfg_.rate / cfg_.sessions;
         const double ns_per_order = per_sec > 0 ? 1e9 / per_sec : 0;
-        const std::uint64_t start = mono_ns();
-        std::uint64_t last_hb = start;
-        std::uint64_t sent = 0;
-        last_now_ = start;
-        (void)start;
+        std::uint64_t last_hb = mono_ns();
+        std::uint64_t last_now = last_hb;
+        double budget_ns = 0.0;
         char rx[1 << 16];
         std::string rxbuf;
         while (!g_stop && !dead_) {
             const std::uint64_t now = mono_ns();
-            // Send everything that is due, in one write, bounded burst.
             if (ns_per_order > 0) {
+                const double pace = ns_per_order / model_.activity(now);
                 int burst = 0;
-                const double pace = ns_per_order / activity();
-                while (budget_ns_ <= 0.0 && burst < 128) {
-                    step();
-                    ++sent;
+                while (budget_ns <= 0.0 && burst < 128) {
+                    for (const flow::Action &a : model_.step())
+                        send(a);
                     ++burst;
-                    budget_ns_ += pace;
+                    budget_ns += pace;
                 }
-                budget_ns_ -= double(now - last_now_);
-                last_now_ = now;
+                budget_ns -= double(now - last_now);
+                last_now = now;
             }
             if (now - last_hb >= 1'000'000'000ULL) {
                 frame(boe::MsgType::ClientHeartbeat, nullptr, 0, false);
                 last_hb = now;
             }
             flush();
-            // Wait for input until the next order is due.
-            int timeout_ms = 0;
-            if (ns_per_order > 0) {
-                double wait = budget_ns_;
-                timeout_ms = wait > 1e6 ? std::min(50, int(wait / 1e6)) : 0;
-            } else {
-                timeout_ms = 100;
-            }
+            int timeout_ms = ns_per_order > 0 ? (budget_ns > 1e6 ? std::min(50, int(budget_ns / 1e6)) : 0) : 100;
             pollfd p{fd_, POLLIN, 0};
             int r = ::poll(&p, 1, timeout_ms);
             if (r > 0 && (p.revents & POLLIN)) {
@@ -179,15 +140,6 @@ class Session {
     }
 
   private:
-    struct Live {
-        std::uint64_t order_id;
-        std::uint64_t px;
-        std::uint32_t leaves;
-        std::uint8_t side;
-        std::size_t sym;
-        std::size_t vec_pos;
-    };
-
     bool connect_and_login() {
         addrinfo hints{}, *res = nullptr;
         hints.ai_family = AF_INET;
@@ -214,7 +166,6 @@ class Session {
         std::memcpy(l.password, "flow", 4);
         frame(boe::MsgType::LoginRequest, &l, sizeof(l), false);
         flush();
-        // Wait for the LoginResponse before sending orders.
         char buf[256];
         pollfd p{fd_, POLLIN, 0};
         if (::poll(&p, 1, 3000) <= 0) {
@@ -261,118 +212,55 @@ class Session {
         tx_.clear();
     }
 
-    std::string next_cl() {
-        char b[21];
-        std::snprintf(b, sizeof(b), "S%02d%017llu", idx_ % 100, (unsigned long long)cl_seq_++);
-        return std::string(b, 20);
+    // Client order ids: 20 chars, "S<session:02><cl:017>".
+    static void put_cl(char out[20], int idx, std::uint64_t cl) {
+        char b[24];
+        std::snprintf(b, sizeof(b), "S%02d%017llu", idx % 100, (unsigned long long)cl);
+        std::memcpy(out, b, 20);
+    }
+    static std::uint64_t parse_cl(const char in[20]) {
+        return std::strtoull(std::string(in + 3, 17).c_str(), nullptr, 10);
     }
 
-    void send_new(std::size_t sym, std::uint8_t side, std::uint32_t qty, std::uint64_t px, std::uint8_t tif) {
-        boe::NewOrder m{};
-        std::string cl = next_cl();
-        std::memcpy(m.cl_ord_id, cl.data(), 20);
-        m.side = side;
-        m.qty = qty;
-        m.price = px;
-        std::memset(m.symbol, ' ', sizeof(m.symbol));
-        const std::string &s = cfg_.symbols[sym];
-        std::memcpy(m.symbol, s.data(), std::min(s.size(), sizeof(m.symbol)));
-        m.ord_type = boe::ord_type::Limit;
-        m.tif = tif;
-        frame(boe::MsgType::NewOrder, &m, sizeof(m), true);
-        pending_[cl] = {mono_ns(), sym, side, px};
-        tot_.sent.fetch_add(1, std::memory_order_relaxed);
-        tot_.outstanding.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    // Geometric offset from the touch: most passive orders sit within a few
-    // ticks of the mid, a tail rests deeper.
-    std::uint64_t offset() {
-        std::uint64_t k = 1;
-        while (k < 40 && rng_() % 100 < 62)
-            ++k;
-        return k;
-    }
-    // Lognormal-ish round-lot sizes: lots of 100s, a tail of blocks.
-    std::uint32_t size(double scale) {
-        std::normal_distribution<double> n(4.0, 0.9); // e^4 ≈ 55
-        double v = std::exp(n(rng_)) * scale;
-        std::uint32_t q = static_cast<std::uint32_t>(std::max(1.0, std::min(20000.0, v)));
-        return q >= 100 ? (q / 100) * 100 : q;
-    }
-
-    void step() {
-        std::size_t si = rng_() % cfg_.symbols.size();
-        std::uint64_t &mid = mid_[si];
-        // Fundamental: mean-reverting walk with rare jumps; the mid drifts
-        // toward it, and fills (see on_report) anchor the mid to prints.
-        double &f = fund_[si];
-        std::normal_distribution<double> z(0.0, 1.0);
-        f += f * vol_[si] * z(rng_) * 0.3;
-        if (rng_() % 4000 == 0)
-            f *= 1.0 + (rng_() % 2 ? 1 : -1) * (0.004 + (rng_() % 10) * 0.001); // news
-        double gap = f - static_cast<double>(mid);
-        if (std::fabs(gap) > 1.0 && rng_() % 3 == 0)
-            mid = static_cast<std::uint64_t>(std::max(10.0, static_cast<double>(mid) + (gap > 0 ? 1 : -1)));
-        trend_[si] = 0.9 * trend_[si] + 0.1 * (gap > 0 ? 1.0 : gap < 0 ? -1.0 : 0.0);
-
-        unsigned r = rng_() % 100;
-        if (r < 52) { // passive limit near the touch
-            std::uint8_t side = (rng_() % 2) ? boe::side::Buy : boe::side::Sell;
-            std::uint64_t off = offset();
-            std::uint64_t px = side == boe::side::Buy ? (mid > off ? mid - off : 1) : mid + off;
-            send_new(si, side, size(1.0), px, boe::tif::GTC);
-        } else if (r < 78 && !live_vec_.empty()) { // cancel
-            const std::string &cl = live_vec_[rng_() % live_vec_.size()];
+    void send(const flow::Action &a) {
+        switch (a.kind) {
+        case flow::Action::kNew: {
+            const std::uint64_t cl = next_cl_++;
+            boe::NewOrder m{};
+            put_cl(m.cl_ord_id, idx_, cl);
+            m.side = a.new_order.buy ? boe::side::Buy : boe::side::Sell;
+            m.qty = a.new_order.qty;
+            m.price = a.new_order.px;
+            std::memset(m.symbol, ' ', sizeof(m.symbol));
+            const std::string &s = cfg_.symbols[a.new_order.sym];
+            std::memcpy(m.symbol, s.data(), std::min(s.size(), sizeof(m.symbol)));
+            m.ord_type = boe::ord_type::Limit;
+            m.tif = a.new_order.ioc ? boe::tif::IOC : boe::tif::GTC;
+            frame(boe::MsgType::NewOrder, &m, sizeof(m), true);
+            sent_ns_[cl] = mono_ns();
+            model_.sent(cl, a.new_order.sym);
+            tot_.sent.fetch_add(1, std::memory_order_relaxed);
+            tot_.outstanding.fetch_add(1, std::memory_order_relaxed);
+            break;
+        }
+        case flow::Action::kCancel: {
             boe::CancelOrder c{};
-            std::memcpy(c.orig_cl_ord_id, cl.data(), 20);
+            put_cl(c.orig_cl_ord_id, idx_, a.cancel.cl);
             frame(boe::MsgType::CancelOrder, &c, sizeof(c), true);
             tot_.sent.fetch_add(1, std::memory_order_relaxed);
-        } else if (r < 86 && !live_vec_.empty()) { // reduce
-            const std::string &cl = live_vec_[rng_() % live_vec_.size()];
-            auto it = live_.find(cl);
-            if (it != live_.end() && it->second.leaves > 1) {
-                boe::ModifyOrder m{};
-                std::memcpy(m.cl_ord_id, cl.data(), 20);
-                std::memcpy(m.orig_cl_ord_id, cl.data(), 20);
-                m.qty = 1 + rng_() % it->second.leaves;
-                m.price = 0;
-                frame(boe::MsgType::ModifyOrder, &m, sizeof(m), true);
-                tot_.sent.fetch_add(1, std::memory_order_relaxed);
-            }
-        } else { // aggressive: momentum-biased, occasionally a sweep
-            double p_buy = 0.5 + 0.25 * trend_[si];
-            std::uint8_t side = (rng_() % 1000 < p_buy * 1000) ? boe::side::Buy : boe::side::Sell;
-            bool sweep = rng_() % 400 == 0;
-            std::uint64_t reach = sweep ? 15 : 1 + rng_() % 3;
-            std::uint64_t px = side == boe::side::Buy ? mid + reach : (mid > reach ? mid - reach : 1);
-            send_new(si, side, size(sweep ? 12.0 : 1.4), px, boe::tif::IOC);
+            break;
         }
-        if (live_vec_.size() > 5000) { // keep the book bounded per session
-            const std::string cl = live_vec_[rng_() % live_vec_.size()];
-            boe::CancelOrder c{};
-            std::memcpy(c.orig_cl_ord_id, cl.data(), 20);
-            frame(boe::MsgType::CancelOrder, &c, sizeof(c), true);
+        case flow::Action::kReduce: {
+            boe::ModifyOrder m{};
+            put_cl(m.cl_ord_id, idx_, a.reduce.cl);
+            put_cl(m.orig_cl_ord_id, idx_, a.reduce.cl);
+            m.qty = a.reduce.qty;
+            m.price = 0;
+            frame(boe::MsgType::ModifyOrder, &m, sizeof(m), true);
             tot_.sent.fetch_add(1, std::memory_order_relaxed);
+            break;
         }
-    }
-
-    void add_live(const std::string &cl, Live l) {
-        l.vec_pos = live_vec_.size();
-        live_vec_.push_back(cl);
-        live_[cl] = l;
-    }
-    void remove_live(const std::string &cl) {
-        auto it = live_.find(cl);
-        if (it == live_.end())
-            return;
-        std::size_t pos = it->second.vec_pos;
-        if (pos + 1 != live_vec_.size()) {
-            live_vec_[pos] = live_vec_.back();
-            live_[live_vec_[pos]].vec_pos = pos;
         }
-        live_vec_.pop_back();
-        live_.erase(it);
     }
 
     void on_report(const boe::Header &h, const char *body, std::uint16_t len) {
@@ -383,18 +271,15 @@ class Session {
                 return;
             boe::OrderAcknowledgment a;
             std::memcpy(&a, body, sizeof(a));
-            std::string cl(a.cl_ord_id, 20);
-            auto p = pending_.find(cl);
-            if (p != pending_.end()) {
-                tot_.rtt(mono_ns() - p->second.sent_ns);
-                std::size_t sym = p->second.sym;
-                pending_.erase(p);
-                tot_.acked.fetch_add(1, std::memory_order_relaxed);
-                if (a.leaves_qty > 0)
-                    add_live(cl, Live{a.order_id, a.price, a.leaves_qty, a.side, sym, 0});
-                else
-                    tot_.outstanding.fetch_sub(1, std::memory_order_relaxed);
+            const std::uint64_t cl = parse_cl(a.cl_ord_id);
+            if (auto it = sent_ns_.find(cl); it != sent_ns_.end()) {
+                tot_.rtt(mono_ns() - it->second);
+                sent_ns_.erase(it);
             }
+            tot_.acked.fetch_add(1, std::memory_order_relaxed);
+            model_.accepted(cl, a.leaves_qty);
+            if (a.leaves_qty == 0)
+                tot_.outstanding.fetch_sub(1, std::memory_order_relaxed);
             break;
         }
         case MsgType::OrderRejected: {
@@ -402,9 +287,10 @@ class Session {
                 return;
             boe::OrderRejected r;
             std::memcpy(&r, body, sizeof(r));
-            std::string cl(r.cl_ord_id, 20);
-            if (pending_.erase(cl)) {
+            const std::uint64_t cl = parse_cl(r.cl_ord_id);
+            if (sent_ns_.erase(cl)) {
                 tot_.outstanding.fetch_sub(1, std::memory_order_relaxed);
+                model_.rejected(cl);
                 if (r.reason == boe::reject_reason::Other)
                     tot_.busy.fetch_add(1, std::memory_order_relaxed);
                 else if (r.reason == boe::reject_reason::NoLiquidity || r.reason == boe::reject_reason::FokUnfillable)
@@ -421,9 +307,7 @@ class Session {
                 return;
             boe::OrderModified m;
             std::memcpy(&m, body, sizeof(m));
-            auto it = live_.find(std::string(m.cl_ord_id, 20));
-            if (it != live_.end())
-                it->second.leaves = m.leaves_qty;
+            model_.modified(parse_cl(m.cl_ord_id), m.leaves_qty);
             tot_.modified.fetch_add(1, std::memory_order_relaxed);
             break;
         }
@@ -432,13 +316,11 @@ class Session {
                 return;
             boe::OrderCancelled c;
             std::memcpy(&c, body, sizeof(c));
-            std::string cl(c.cl_ord_id, 20);
-            if (live_.count(cl)) {
-                remove_live(cl);
+            const std::uint64_t cl = parse_cl(c.cl_ord_id);
+            const std::size_t before = model_.live();
+            model_.cancelled(cl);
+            if (model_.live() < before || sent_ns_.erase(cl))
                 tot_.outstanding.fetch_sub(1, std::memory_order_relaxed);
-            } else if (pending_.erase(cl)) {
-                tot_.outstanding.fetch_sub(1, std::memory_order_relaxed);
-            }
             tot_.cancelled.fetch_add(1, std::memory_order_relaxed);
             break;
         }
@@ -448,17 +330,11 @@ class Session {
             boe::OrderExecution x;
             std::memcpy(&x, body, sizeof(x));
             tot_.execs.fetch_add(1, std::memory_order_relaxed);
-            std::string cl(x.cl_ord_id, 20);
-            auto it = live_.find(cl);
-            if (it != live_.end()) {
-                mid_[it->second.sym] = x.last_price; // anchor the walk to real prints
-                if (x.leaves_qty == 0) {
-                    remove_live(cl);
-                    tot_.outstanding.fetch_sub(1, std::memory_order_relaxed);
-                } else {
-                    it->second.leaves = x.leaves_qty;
-                }
-            }
+            const std::uint64_t cl = parse_cl(x.cl_ord_id);
+            const std::size_t before = model_.live();
+            model_.executed(cl, x.last_price, x.leaves_qty);
+            if (model_.live() < before)
+                tot_.outstanding.fetch_sub(1, std::memory_order_relaxed);
             break;
         }
         case MsgType::Logout: {
@@ -472,35 +348,20 @@ class Session {
             break;
         }
         default:
-            break; // heartbeats, login response
+            break;
         }
     }
-
-    struct Pending {
-        std::uint64_t sent_ns;
-        std::size_t sym;
-        std::uint8_t side;
-        std::uint64_t px;
-    };
 
     int idx_;
     const Config &cfg_;
     Totals &tot_;
-    std::mt19937_64 rng_;
+    flow::Model model_;
     int fd_ = -1;
     bool dead_ = false;
     std::uint32_t out_seq_ = 1;
-    std::uint64_t cl_seq_ = 1;
+    std::uint64_t next_cl_ = 1;
     std::string tx_;
-    std::vector<std::uint64_t> mid_;
-    std::vector<double> fund_, vol_, trend_;
-    double activity_ = 1.0;
-    std::uint64_t regime_until_ = 0;
-    double budget_ns_ = 0.0;
-    std::uint64_t last_now_ = 0;
-    std::unordered_map<std::string, Pending> pending_;
-    std::unordered_map<std::string, Live> live_;
-    std::vector<std::string> live_vec_;
+    std::unordered_map<std::uint64_t, std::uint64_t> sent_ns_; // cl -> send time
 };
 
 int main(int argc, char **argv) {
