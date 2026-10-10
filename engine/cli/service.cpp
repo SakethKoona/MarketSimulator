@@ -313,7 +313,7 @@ int cmd_status(int, char **) {
     if (!alive) {
         std::cout << "exchange: not running\n";
         if (pid)
-            std::cout << "  stale pid file " << pid_file() << " (pid " << pid << ")\n";
+            std::cout << "  stale pid file " << pid_file().string() << " (pid " << pid << ")\n";
         std::string last = read_last_line(log_file());
         if (!last.empty())
             std::cout << "  last log: " << last << "\n";
@@ -381,7 +381,7 @@ int cmd_status(int, char **) {
         } catch (...) {
         }
     }
-    std::cout << "  log:    " << log_file() << "\n";
+    std::cout << "  log:    " << log_file().string() << "\n";
     std::string last = read_last_line(log_file());
     if (!last.empty())
         std::cout << "  last:   " << last << "\n";
@@ -405,7 +405,7 @@ int cmd_logs(int argc, char **argv) {
     fs::path logf = log_file();
     std::error_code ec;
     if (!fs::exists(logf, ec)) {
-        std::cout << "no log yet at " << logf << " (run `mktsim up`)\n";
+        std::cout << "no log yet at " << logf.string() << " (run `mktsim up`)\n";
         return 1;
     }
     std::string path = logf.string();
