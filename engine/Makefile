@@ -136,10 +136,12 @@ $(BUILD_DIR)/cli/%.o: $(CLI_DIR)/%.cpp
 # make install INSTALL_DIR=/usr/local/bin
 INSTALL_DIR ?= $(HOME)/.local/bin
 
+# Prefers the CMake build (../build/engine/mktsim, what the root `make`
+# refreshes) when it exists, else this Makefile's bin/mktsim.
 install: cli
 	@mkdir -p $(INSTALL_DIR)
-	@ln -sf $(abspath $(CLI_TARGET)) $(INSTALL_DIR)/mktsim
-	@echo "Installed $(INSTALL_DIR)/mktsim -> $(abspath $(CLI_TARGET))"
+	@if [ -x ../build/engine/mktsim ]; then T=$(abspath ../build/engine/mktsim); else T=$(abspath $(CLI_TARGET)); fi; \
+	  ln -sf $$T $(INSTALL_DIR)/mktsim; echo "Installed $(INSTALL_DIR)/mktsim -> $$T"
 	@case ":$$PATH:" in *":$(INSTALL_DIR):"*) ;; *) \
 	  echo "Note: $(INSTALL_DIR) is not on your PATH. Add to ~/.zshrc:"; \
 	  echo '  export PATH="$(INSTALL_DIR):$$PATH"';; esac

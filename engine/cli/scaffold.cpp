@@ -491,12 +491,10 @@ struct Adapter {
             ev.qty = r->qty; ev.price = r->price; ev.leaves = r->leaves_qty;
             break;
         case MKTSIM_RPT_EXECUTION:
+            // Executions do not carry leaves; a fully filled order's id is
+            // released when the exchange rejects a later cancel/modify.
             ev.kind = protocol::Outbound::Exec;
             ev.qty = r->last_qty; ev.price = r->price; ev.match_id = r->match_id;
-            if (r->leaves_qty == 0) {
-                c.by_client.erase(id);
-                c.by_order.erase(r->order_id);
-            }
             break;
         default:
             return;

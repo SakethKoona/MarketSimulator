@@ -86,39 +86,40 @@ mktsim tui --replay ../clients/feedviz/testdata/capture.bin
 
 ## Running the exchange as a service
 
-`mktsim up` with no config on a terminal asks for the setup, like `npm init`:
+`mktsim up` with no config on a terminal walks through the setup in two
+stages, like `npm init` or `create-next-app`. Arrow keys or j/k move in
+lists, Enter confirms.
 
-```
-$ mktsim up
-mktsim: set up an exchange (Enter keeps the default)
+**1 · Engine**: symbols (all 100, a count, or your own list), shards, and the
+market data multicast group.
 
-  Symbols: 'all' (100 from configs/default.json), a count, or a comma list [all]: 20
-  Shards (engine threads; at most one per symbol) [4]:
-  Synthetic order flow: calm, busy, load, or off [calm]: busy
-  Flow sessions (simulated participants) [2]:
-  Order entry (BOE over TCP) port, or 'off' [30000]:
-  Keep the bundled plugin build/gateway/jsonl_ingress on :30020 [y/N]:
-  Add your own ingress plugin? Path to its shared library, or Enter to continue: ~/dev/fix_bridge.dylib
-      Port for it (0 if it needs none) [30030]:
-  Add your own ingress plugin? Path to its shared library, or Enter to continue:
-  Market data multicast group:port [239.1.1.1:30001]:
-  Save config as [~/.local/state/mktsim/exchange.json]:
+**2 · Ingress**: where orders come from.
 
-  symbols 20 · shards 4 · flow busy · ingress: boe:30000 plugin:30030
-  feed 239.1.1.1:30001
-  saved /Users/you/.local/state/mktsim/exchange.json
+- *demo flow*: built-in simulated participants at a calm, normal or heavy
+  profile, plus BOE order entry so `mktsim connect` and flowgen work.
+- *your own ingress*: scaffolds an adapter project for you, the way a
+  framework's create command lays out a new app, builds it with cmake, and
+  wires it into the config. You get:
 
-  Start the exchange now [Y/n]:
-exchange up (pid 57133)
-```
+  ```
+  my_ingress/
+    CMakeLists.txt          builds my_ingress.dylib / .so
+    README.md               the protocol it speaks out of the box, how to change it
+    src/protocol.hpp        YOURS: frame_end(), decode(), encode()
+    src/adapter.cpp         generated: TCP server, sessions, ids, report routing
+    include/ingress/api.h   the exchange's plugin contract
+  ```
 
-Multiple-choice questions (symbols, flow profile, order entry, yes/no) are
-pick-lists: Up/Down or j/k move, Enter confirms, a digit jumps; piped input
-answers them with the option's number or label. Text questions take Enter
-for the default.
+  The TCP listening, one-session-per-connection, order-id bookkeeping and
+  report polling are already written. You change three functions in
+  `src/protocol.hpp` to speak your wire format. Until you do, it speaks a
+  plain text protocol you can drive with `nc localhost 30030`:
+  `NEW c1 AAPL B 100 10000`, `MARKET c2 AAPL S 50`, `MODIFY c1 60`,
+  `CANCEL c1`, `PING`. Rebuild and `mktsim down && mktsim up` to reload.
+- *both*: demo flow alongside your adapter.
 
-Your own ingress is a shared library implementing `gateway/include/ingress/api.h`;
-the wizard adds it to the config's `ingress` list with the port you give it.
+Then where to save the config, a summary, next steps, and whether to start.
+
 `mktsim init` asks the same questions and only writes the config.
 `mktsim up -y` skips the questions and uses `configs/default.json`;
 `mktsim up path.json` uses a config you already have; `-i` forces the questions.
