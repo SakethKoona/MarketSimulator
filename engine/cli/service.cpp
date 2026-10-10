@@ -1,4 +1,5 @@
 #include "service.hpp"
+#include "scaffold.hpp"
 #include "nlohmann/json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -205,6 +206,23 @@ static int launch(const fs::path &cfg, const fs::path &use_cfg,
         std::string last = read_last_line(logf);
         if (!last.empty())
             std::cerr << "  log: " << last << "\n";
+        return 1;
+    }
+    // A daemon that fails during startup (a plugin that will not load, a
+    // port in use) dies a moment after writing its pid; catch that here.
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    if (!pid_alive(pid)) {
+        std::cerr << "mktsim up: exchange_server exited right after starting\n";
+        std::ifstream in(logf);
+        std::vector<std::string> tail;
+        for (std::string line; std::getline(in, line);) {
+            tail.push_back(line);
+            if (tail.size() > 6) tail.erase(tail.begin());
+        }
+        for (auto &l : tail)
+            std::cerr << "  log: " << l << "\n";
+        std::error_code ec2;
+        fs::remove(pidf, ec2);
         return 1;
     }
 
@@ -463,10 +481,15 @@ std::string shorten_home(const std::string &p) {
 
 } // namespace
 
-// Interactive config builder. Starts from the repo's default config, asks
-// for the parameters that matter, returns the config and where it was
-// saved. Returns false if the user bailed (EOF).
+// Interactive config builder, in two stages:
+//   1. Engine: symbols, shards, market data feed.
+//   2. Ingress: demo flow (calm / normal / heavy) and order entry, or your
+//      own adapter, scaffolded as a buildable project.
+// Returns false if the user bailed (EOF / q).
+static std::string g_start_warning; // set by wizard when starting now is unwise
+
 static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
+    g_start_warning.clear();
     Ui ui;
     fs::path root = repo_root();
     fs::path base = root.empty() ? fs::path() : root / "configs" / "default.json";
@@ -489,10 +512,11 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
 
     ui.banner("mktsim · set up an exchange");
     std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim()
-              << "Enter keeps the default shown after ›" << ui.reset() << "\n";
+              << "Enter keeps the default · arrows or j/k move in lists" << ui.reset() << "\n";
 
-    /* ---- market ---- */
-    ui.section("Market");
+    /* ================= 1. ENGINE ================= */
+    ui.section("1 · Engine");
+
     std::string s;
     {
         std::size_t mode = 0;
@@ -543,124 +567,16 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
 
     long nsym = syms.size();
     long shards = std::min<long>(c.value("shards", 1), nsym);
-    if (!ui.ask_int("Shards", "engine threads; each symbol lives on exactly one, so at most " +
+    if (!ui.ask_int("Shards", "matching threads; each symbol lives on exactly one, so at most " +
                     std::to_string(nsym), std::max(1L, shards), 1, std::min(256L, nsym), shards))
         return false;
     c["shards"] = shards;
 
-    std::string flow;
-    {
-        static const char *names[] = {"calm", "busy", "load", "off"};
-        std::size_t idx = 0;
-        if (!ui.select("Synthetic order flow", "built-in participants that keep the books alive",
-                       {{"calm", "a few orders a second per symbol"},
-                        {"busy", "active two-sided flow, frequent trades"},
-                        {"load", "as fast as the exchange will take"},
-                        {"off", "no synthetic flow; bring your own ingress"}},
-                       0, idx))
-            return false;
-        flow = names[idx];
-    }
-    c = apply_flow(c, flow);
-    if (flow != "off") {
-        long sessions = 2;
-        for (auto &e : c["ingress"])
-            if (e.value("type", "") == "flowgen")
-                sessions = e.value("sessions", 2);
-        if (!ui.ask_int("Flow sessions", "simulated participants placing the synthetic orders", sessions, 1, 64, sessions))
-            return false;
-        for (auto &e : c["ingress"])
-            if (e.value("type", "") == "flowgen")
-                e["sessions"] = sessions;
-    }
-
-    /* ---- order entry ---- */
-    ui.section("Order entry");
-    json ingress = json::array();
-    for (auto &e : c["ingress"])
-        if (e.value("type", "") == "flowgen")
-            ingress.push_back(e);
-    json boe;
-    for (auto &e : c["ingress"])
-        if (e.value("type", "") == "boe")
-            boe = e;
-    if (boe.is_null())
-        boe = {{"type", "boe"}, {"port", 30000}, {"bind", "0.0.0.0"}, {"heartbeat_ms", 1000},
-               {"timeout_ms", 5000}, {"poll_ms", 1}, {"max_sessions", 64}};
-    {
-        std::size_t idx = 0;
-        long cur_port = boe.value("port", 30000);
-        if (!ui.select("Order entry (BOE over TCP)", "used by mktsim connect, flowgen and any BOE client",
-                       {{"on :" + std::to_string(cur_port), "the default port"},
-                        {"on another port", ""},
-                        {"off", "no BOE; orders only through your own ingress"}},
-                       0, idx))
-            return false;
-        if (idx == 2) {
-            boe = nullptr;
-        } else if (idx == 1) {
-            long v = cur_port;
-            if (!ui.ask_int("BOE port", "", cur_port, 1, 65535, v))
-                return false;
-            boe["port"] = v;
-        }
-        if (!boe.is_null())
-            ingress.push_back(boe);
-    }
-
-    for (auto &e : c["ingress"]) {
-        if (e.value("type", "") == "plugin") {
-            std::string path = e.value("path", "");
-            long port = e.contains("config") ? e["config"].value("port", 0) : 0;
-            bool keep = false;
-            if (!ui.ask_yes("Keep the bundled plugin", path + (port ? " on :" + std::to_string(port) : "") +
-                            " (a JSON-lines order entry example)", false, keep))
-                return false;
-            if (keep)
-                ingress.push_back(e);
-        }
-    }
-
-    long next_port = 30030;
-    int added = 0;
-    while (true) {
-        std::string path;
-        if (!ui.ask(added ? "Add another ingress plugin" : "Add your own ingress plugin",
-                    "path to a shared library implementing gateway/include/ingress/api.h; Enter to continue", "", path))
-            return false;
-        if (path.empty())
-            break;
-        path = expand_home(path);
-        fs::path pp = path;
-        if (!fs::exists(pp, ec) && !root.empty() && fs::exists(root / pp, ec))
-            pp = root / pp;
-        if (!fs::exists(pp, ec)) {
-            bool keep = false;
-            if (!ui.ask_yes("Not found yet", path + " does not exist; add it anyway", false, keep))
-                return false;
-            if (!keep)
-                continue;
-        } else {
-            pp = fs::weakly_canonical(pp, ec);
-        }
-        long port = 0;
-        if (!ui.ask_int("Port for it", "0 if it needs none", next_port, 0, 65535, port))
-            return false;
-        json pc = json::object();
-        if (port) { pc["port"] = port; pc["bind"] = "0.0.0.0"; next_port = port + 1; }
-        ingress.push_back({{"type", "plugin"}, {"path", pp.string()}, {"config", pc}});
-        ui.note("added " + shorten_home(pp.string()) + (port ? " on :" + std::to_string(port) : ""));
-        added++;
-    }
-    c["ingress"] = ingress;
-
-    /* ---- market data ---- */
-    ui.section("Market data");
     {
         std::string gp;
         std::string def = c["feed"].value("group", "239.1.1.1") + ":" + std::to_string(c["feed"].value("port", 30001));
         while (true) {
-            if (!ui.ask("Multicast group:port", "the public feed every TUI and feed_dump subscribes to", def, gp))
+            if (!ui.ask("Market data feed", "UDP multicast group:port the TUI and feed clients subscribe to", def, gp))
                 return false;
             auto k = gp.find(':');
             if (k != std::string::npos) {
@@ -676,11 +592,160 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
         }
     }
 
-    /* ---- save ---- */
+    /* ================= 2. INGRESS ================= */
+    ui.section("2 · Ingress");
+
+    json flowgen_tpl, boe_tpl;
+    for (auto &e : c["ingress"]) {
+        if (e.value("type", "") == "flowgen") flowgen_tpl = e;
+        if (e.value("type", "") == "boe") boe_tpl = e;
+    }
+    if (flowgen_tpl.is_null())
+        flowgen_tpl = {{"type", "flowgen"}, {"enabled", true}, {"profile", "calm"}, {"sessions", 2}, {"seed", 1}};
+    if (boe_tpl.is_null())
+        boe_tpl = {{"type", "boe"}, {"port", 30000}, {"bind", "0.0.0.0"}, {"heartbeat_ms", 1000},
+                   {"timeout_ms", 5000}, {"poll_ms", 1}, {"max_sessions", 64}};
+
+    json ingress = json::array();
+    std::string flow = "off";
+    std::string own_summary;
+    std::vector<std::string> next_steps;
+
+    std::size_t src = 0;
+    if (!ui.select("Where do orders come from",
+                   "the demo keeps the books alive by itself; your own adapter speaks your protocol",
+                   {{"demo flow", "built-in simulated participants, plus BOE order entry for mktsim connect"},
+                    {"your own ingress", "scaffold an adapter project you code up; TCP, sessions and reports handled"},
+                    {"both", "demo flow running alongside your adapter"}},
+                   0, src))
+        return false;
+    bool want_demo = (src == 0 || src == 2);
+    bool want_own = (src == 1 || src == 2);
+
+    if (want_demo) {
+        static const char *profiles[] = {"calm", "busy", "load"};
+        std::size_t pi = 0;
+        if (!ui.select("Demo flow", "how busy the simulated market is",
+                       {{"calm", "a few orders a second per symbol"},
+                        {"normal", "active two-sided flow, frequent trades"},
+                        {"heavy", "as fast as the exchange will take"}},
+                       0, pi))
+            return false;
+        flow = profiles[pi];
+        long sessions = flowgen_tpl.value("sessions", 2);
+        if (!ui.ask_int("Simulated participants", "each is a session placing orders", sessions, 1, 64, sessions))
+            return false;
+        json fg = flowgen_tpl;
+        fg["enabled"] = true;
+        fg["profile"] = flow;
+        fg["sessions"] = sessions;
+        ingress.push_back(fg);
+    } else {
+        json fg = flowgen_tpl;
+        fg["enabled"] = false;
+        ingress.push_back(fg);
+    }
+
+    // BOE order entry: on by default with the demo, optional otherwise
+    {
+        long cur_port = boe_tpl.value("port", 30000);
+        bool keep = true;
+        if (!ui.ask_yes("BOE order entry on :" + std::to_string(cur_port),
+                        "binary order entry over TCP; what mktsim connect and flowgen speak", want_demo || !want_own, keep))
+            return false;
+        if (keep)
+            ingress.push_back(boe_tpl);
+    }
+
+    if (want_own) {
+        std::size_t how = 0;
+        if (!ui.select("Your ingress", "",
+                       {{"scaffold a new adapter", "a ready-to-build project; you fill in decode() and encode()"},
+                        {"use an existing library", "a shared library you already built against ingress/api.h"}},
+                       0, how))
+            return false;
+
+        if (how == 0) {
+            std::string name;
+            if (!ui.ask("Adapter name", "letters, digits and _; also the library name", "my_ingress", name))
+                return false;
+            std::string dir;
+            if (!ui.ask("Project directory", "created if missing", "./" + name, dir))
+                return false;
+            long port = 30030;
+            if (!ui.ask_int("Port it listens on", "one TCP connection = one exchange session", 30030, 1, 65535, port))
+                return false;
+
+            scaffold::Spec spec;
+            spec.name = name;
+            spec.dir = fs::weakly_canonical(fs::path(expand_home(dir)), ec);
+            if (ec) spec.dir = fs::absolute(fs::path(expand_home(dir)));
+            spec.repo = root;
+            spec.port = static_cast<int>(port);
+
+            std::string err = scaffold::generate(spec);
+            if (!err.empty()) {
+                ui.warn(err);
+                return false;
+            }
+            ui.note("created " + shorten_home(spec.dir.string()) + "/");
+            std::cout << ui.cyan() << "│" << ui.reset() << "    " << ui.dim()
+                      << "CMakeLists.txt  README.md  src/protocol.hpp  src/adapter.cpp  include/ingress/api.h"
+                      << ui.reset() << "\n";
+
+            bool build_now = true;
+            if (!ui.ask_yes("Build it now", "cmake configure + build into " + name + "/build", true, build_now))
+                return false;
+            bool built = false;
+            if (build_now) {
+                std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "building…" << ui.reset() << "\n";
+                built = scaffold::build(spec) == 0;
+                if (built)
+                    ui.note("built " + shorten_home(scaffold::library_path(spec)));
+                else
+                    ui.warn("build failed; fix it and run: cmake -S " + shorten_home(spec.dir.string()) +
+                            " -B " + shorten_home((spec.dir / "build").string()) + " && cmake --build " +
+                            shorten_home((spec.dir / "build").string()));
+            }
+            if (!built)
+                g_start_warning = "the adapter library is not built yet, so the exchange would fail to load it";
+            ingress.push_back({{"type", "plugin"}, {"path", scaffold::library_path(spec)},
+                               {"config", {{"port", port}, {"bind", "0.0.0.0"}}}});
+            own_summary = name + ":" + std::to_string(port);
+            next_steps.push_back("edit  " + shorten_home((spec.dir / "src" / "protocol.hpp").string()));
+            if (!built)
+                next_steps.push_back("build  cmake -S " + shorten_home(spec.dir.string()) + " -B " +
+                                     shorten_home((spec.dir / "build").string()) + " && cmake --build " +
+                                     shorten_home((spec.dir / "build").string()));
+            next_steps.push_back("try   nc localhost " + std::to_string(port) + "   then  NEW c1 AAPL B 100 10000");
+        } else {
+            std::string path;
+            if (!ui.ask("Shared library", "path to the .dylib/.so, or without extension", "", path))
+                return false;
+            path = expand_home(path);
+            fs::path pp = path;
+            if (!fs::exists(pp, ec) && !root.empty() && fs::exists(root / pp, ec))
+                pp = root / pp;
+            if (fs::exists(pp, ec))
+                pp = fs::weakly_canonical(pp, ec);
+            else
+                ui.warn(path + " does not exist yet; the exchange will fail to start until it does");
+            long port = 30030;
+            if (!ui.ask_int("Port for it", "0 if it takes none", 30030, 0, 65535, port))
+                return false;
+            json pc = json::object();
+            if (port) { pc["port"] = port; pc["bind"] = "0.0.0.0"; }
+            ingress.push_back({{"type", "plugin"}, {"path", pp.string()}, {"config", pc}});
+            own_summary = pp.filename().string() + (port ? ":" + std::to_string(port) : "");
+        }
+    }
+    c["ingress"] = ingress;
+
+    /* ================= SAVE ================= */
     ui.section("Save");
     std::string save;
     fs::path def_path = state_dir() / "exchange.json";
-    if (!ui.ask("Config file", "where to write the config; mktsim up <path> starts it later", shorten_home(def_path.string()), save))
+    if (!ui.ask("Config file", "mktsim up <path> starts it; the default path is what plain mktsim up uses", shorten_home(def_path.string()), save))
         return false;
     fs::path sp = expand_home(save);
     fs::create_directories(sp.parent_path().empty() ? fs::path(".") : sp.parent_path(), ec);
@@ -693,14 +758,14 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
         out << c.dump(4) << "\n";
     }
 
-    /* ---- summary ---- */
+    /* ================= SUMMARY ================= */
     std::ostringstream ing;
     for (auto &e : ingress) {
         std::string t = e.value("type", "?");
         if (t == "flowgen") continue;
+        if (t == "plugin") { ing << (ing.tellp() > 0 ? " · " : "") << own_summary; continue; }
         ing << (ing.tellp() > 0 ? " · " : "") << t;
         if (e.contains("port")) ing << ":" << e["port"].get<long>();
-        else if (e.contains("config") && e["config"].contains("port")) ing << ":" << e["config"]["port"].get<long>();
     }
     auto row = [&](const std::string &k, const std::string &v) {
         std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "│ " << ui.reset()
@@ -712,11 +777,17 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "┌" << ui.reset() << "\n";
     row("symbols", std::to_string(syms.size()));
     row("shards", std::to_string(shards));
-    row("flow", flow == "off" ? "off" : flow);
-    row("ingress", ing.str().empty() ? "none" : ing.str());
     row("feed", c["feed"]["group"].get<std::string>() + ":" + std::to_string(c["feed"]["port"].get<long>()));
+    row("demo flow", flow == "off" ? "off" : (flow == "calm" ? "calm" : flow == "busy" ? "normal" : "heavy"));
+    row("ingress", ing.str().empty() ? "none" : ing.str());
     row("saved", shorten_home(sp.string()));
     std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "└" << ui.reset() << "\n";
+    if (!next_steps.empty()) {
+        ui.rail();
+        std::cout << ui.cyan() << "◇" << ui.reset() << "  " << ui.bold() << "Next" << ui.reset() << "\n";
+        for (auto &n : next_steps)
+            std::cout << ui.cyan() << "│" << ui.reset() << "  " << n << "\n";
+    }
 
     out_cfg = c;
     out_path = fs::weakly_canonical(sp, ec);
@@ -779,8 +850,10 @@ int cmd_up(int argc, char **argv) {
             wflow = flow;
         }
         Ui ui;
-        bool go = true;
-        if (!ui.ask_yes("Start the exchange now", "runs in the background until mktsim down", true, go))
+        bool go = g_start_warning.empty();
+        if (!ui.ask_yes("Start the exchange now",
+                        g_start_warning.empty() ? "runs in the background until mktsim down" : g_start_warning,
+                        g_start_warning.empty(), go))
             return 1;
         if (!go) {
             ui.done("start it later with  " + ui.bold() + "mktsim up " + shorten_home(p.string()) + ui.reset());

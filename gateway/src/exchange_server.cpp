@@ -111,6 +111,14 @@ static void daemonize(const std::string &pidfile, const std::string &logfile) {
     if (pid < 0) std::exit(1);
     if (pid > 0) ::_exit(0);
     ::umask(022);
+    // Drop every descriptor inherited from the parent (pipes, sockets) so
+    // the service never pins something the caller is waiting on.
+    {
+        long max_fd = ::sysconf(_SC_OPEN_MAX);
+        if (max_fd < 0 || max_fd > 65536) max_fd = 65536;
+        for (int i = 3; i < max_fd; ++i)
+            ::close(i);
+    }
     int fd = ::open(logfile.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd >= 0) {
         ::dup2(fd, STDOUT_FILENO);
