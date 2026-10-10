@@ -615,7 +615,7 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     if (!ui.select("Where do orders come from",
                    "the demo keeps the books alive by itself; your own adapter speaks your protocol",
                    {{"demo flow", "built-in simulated participants, plus BOE order entry for mktsim connect"},
-                    {"your own ingress", "scaffold an adapter project you code up; TCP, sessions and reports handled"},
+                    {"your own ingress", "your code places the orders: a Python project (or a C++ adapter)"},
                     {"both", "demo flow running alongside your adapter"}},
                    0, src))
         return false;
@@ -658,14 +658,56 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     }
 
     if (want_own) {
+        json jsonl_tpl;
+        for (auto &e : c["ingress"])
+            if (e.value("type", "") == "plugin" && e.value("path", "").find("jsonl") != std::string::npos)
+                jsonl_tpl = e;
+        if (jsonl_tpl.is_null())
+            jsonl_tpl = {{"type", "plugin"}, {"path", "build/gateway/jsonl_ingress"},
+                         {"config", {{"port", 30020}, {"bind", "0.0.0.0"}}}};
+
         std::size_t how = 0;
         if (!ui.select("Your ingress", "",
-                       {{"scaffold a new adapter", "a ready-to-build project; you fill in decode() and encode()"},
-                        {"use an existing library", "a shared library you already built against ingress/api.h"}},
+                       {{"Python", "one file, three functions: on_start, on_report, on_tick. No build step"},
+                        {"C++ adapter", "for a custom wire protocol: a plugin project you compile; TCP and sessions handled"},
+                        {"existing library", "a shared library you already built against ingress/api.h"}},
                        0, how))
             return false;
 
         if (how == 0) {
+            std::string name;
+            if (!ui.ask("Project name", "letters, digits and _", "my_flow", name))
+                return false;
+            std::string dir;
+            if (!ui.ask("Project directory", "created if missing", "./" + name, dir))
+                return false;
+            long port = jsonl_tpl["config"].value("port", 30020);
+            if (!ui.ask_int("Order entry port", "the exchange's JSON-lines adapter your Python connects to", port, 1, 65535, port))
+                return false;
+
+            scaffold::Spec spec;
+            spec.name = name;
+            spec.dir = fs::weakly_canonical(fs::path(expand_home(dir)), ec);
+            if (ec) spec.dir = fs::absolute(fs::path(expand_home(dir)));
+            spec.repo = root;
+            spec.port = static_cast<int>(port);
+            std::string err = scaffold::generate_python(spec);
+            if (!err.empty()) {
+                ui.warn(err);
+                return false;
+            }
+            ui.note("created " + shorten_home(spec.dir.string()) + "/");
+            std::cout << ui.cyan() << "│" << ui.reset() << "    " << ui.dim()
+                      << "strategy.py (yours)  mktsim.py (client)  README.md" << ui.reset() << "\n";
+
+            json jl = jsonl_tpl;
+            jl["config"]["port"] = port;
+            ingress.push_back(jl);
+            own_summary = name + " (python) -> jsonl:" + std::to_string(port);
+            next_steps.push_back("edit  " + shorten_home((spec.dir / "strategy.py").string()));
+            next_steps.push_back("run   python3 " + shorten_home((spec.dir / "strategy.py").string()) + "   (after mktsim up)");
+            next_steps.push_back("watch mktsim tui");
+        } else if (how == 1) {
             std::string name;
             if (!ui.ask("Adapter name", "letters, digits and _; also the library name", "my_ingress", name))
                 return false;
@@ -690,7 +732,7 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             }
             ui.note("created " + shorten_home(spec.dir.string()) + "/");
             std::cout << ui.cyan() << "│" << ui.reset() << "    " << ui.dim()
-                      << "CMakeLists.txt  README.md  src/protocol.hpp  src/adapter.cpp  include/ingress/api.h"
+                      << "src/protocol.hpp (yours)  src/adapter.cpp  CMakeLists.txt  README.md"
                       << ui.reset() << "\n";
 
             bool build_now = true;

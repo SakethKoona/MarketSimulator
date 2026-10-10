@@ -17,8 +17,12 @@ struct Spec {
     int port = 30030;             // default TCP port the adapter listens on
 };
 
-// Writes the project. Returns "" on success or an error message.
+// Writes the C++ adapter project. Returns "" on success or an error message.
 std::string generate(const Spec &spec);
+
+// Writes a Python project: strategy.py (the user's file) + mktsim.py (a
+// client for the exchange's JSON-lines adapter on spec.port). No build step.
+std::string generate_python(const Spec &spec);
 
 // Config entry path for the built library (no extension; the exchange adds
 // the platform suffix).

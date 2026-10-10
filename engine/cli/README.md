@@ -97,25 +97,34 @@ market data multicast group.
 
 - *demo flow*: built-in simulated participants at a calm, normal or heavy
   profile, plus BOE order entry so `mktsim connect` and flowgen work.
-- *your own ingress*: scaffolds an adapter project for you, the way a
-  framework's create command lays out a new app, builds it with cmake, and
-  wires it into the config. You get:
+- *your own ingress*: your code places the orders. Pick a language:
+
+  **Python** (the default). One file to edit, no build step:
 
   ```
-  my_ingress/
-    CMakeLists.txt          builds my_ingress.dylib / .so
-    README.md               the protocol it speaks out of the box, how to change it
-    src/protocol.hpp        YOURS: frame_end(), decode(), encode()
-    src/adapter.cpp         generated: TCP server, sessions, ids, report routing
-    include/ingress/api.h   the exchange's plugin contract
+  my_flow/
+    strategy.py   YOURS: on_start(ex), on_report(ex, r), on_tick(ex)
+    mktsim.py     generated client for the exchange's JSON-lines order entry
+    README.md
   ```
 
-  The TCP listening, one-session-per-connection, order-id bookkeeping and
-  report polling are already written. You change three functions in
-  `src/protocol.hpp` to speak your wire format. Until you do, it speaks a
-  plain text protocol you can drive with `nc localhost 30030`:
-  `NEW c1 AAPL B 100 10000`, `MARKET c2 AAPL S 50`, `MODIFY c1 60`,
-  `CANCEL c1`, `PING`. Rebuild and `mktsim down && mktsim up` to reload.
+  `ex.buy(sym, qty, price)`, `ex.sell(...)`, `ex.cancel(id)`, `ex.modify(id, qty, price)`;
+  `on_report` gets every ack, fill, cancel and reject on your orders;
+  `on_tick` runs every 100 ms. The wizard enables the exchange's JSON-lines
+  adapter on the port you choose. Run with `python3 my_flow/strategy.py`
+  once the exchange is up; the example quotes a bid and an ask and prints
+  its fills.
+
+  **C++ adapter**, for a custom wire protocol (FIX, your binary format):
+  a plugin project the exchange loads in-process. The TCP listening,
+  sessions, order-id bookkeeping and report routing are generated in
+  `src/adapter.cpp`; you edit `src/protocol.hpp` (`frame_end`, `decode`,
+  `encode`). Built with cmake by the wizard; until you change it, it speaks
+  a plain text protocol you can drive with `nc`.
+
+  **existing library**: point at a shared library you already built
+  against `gateway/include/ingress/api.h`.
+
 - *both*: demo flow alongside your adapter.
 
 Then where to save the config, a summary, next steps, and whether to start.
