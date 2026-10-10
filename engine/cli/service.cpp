@@ -251,47 +251,102 @@ static json apply_flow(json c, const std::string &flow) {
 
 namespace {
 
-// One prompt; Enter keeps the default. Returns false on EOF.
-bool ask(const std::string &label, const std::string &def, std::string &out) {
-    std::cout << "  " << label;
-    if (!def.empty())
-        std::cout << " [" << def << "]";
-    std::cout << ": " << std::flush;
-    std::string line;
-    if (!std::getline(std::cin, line))
-        return false;
-    // trim
-    auto b = line.find_first_not_of(" \t");
-    auto e = line.find_last_not_of(" \t\r");
-    line = (b == std::string::npos) ? "" : line.substr(b, e - b + 1);
-    out = line.empty() ? def : line;
-    return true;
-}
+// Terminal styling for the setup prompts: colours and cursor moves only when
+// both ends are a TTY and NO_COLOR is unset, so piped runs stay plain.
+struct Ui {
+    bool tty;
+    explicit Ui() : tty(isatty(fileno(stdin)) && isatty(fileno(stdout)) &&
+                        std::getenv("NO_COLOR") == nullptr) {}
+    std::string c(const char *code) const { return tty ? std::string("\033[") + code + "m" : ""; }
+    std::string reset() const { return c("0"); }
+    std::string bold() const { return c("1"); }
+    std::string dim() const { return c("2"); }
+    std::string cyan() const { return c("36"); }
+    std::string green() const { return c("32"); }
+    std::string yellow() const { return c("33"); }
+    std::string red() const { return c("31"); }
 
-bool ask_int(const std::string &label, long def, long lo, long hi, long &out) {
-    while (true) {
-        std::string s;
-        if (!ask(label, std::to_string(def), s))
-            return false;
-        char *end = nullptr;
-        long v = std::strtol(s.c_str(), &end, 10);
-        if (end && *end == '\0' && v >= lo && v <= hi) {
-            out = v;
-            return true;
-        }
-        std::cout << "    please enter a number between " << lo << " and " << hi << "\n";
+    void banner(const std::string &title) const {
+        std::cout << "\n" << cyan() << "┌" << reset() << "  " << bold() << title << reset()
+                  << "\n" << cyan() << "│" << reset() << "\n";
     }
-}
+    void section(const std::string &name) const {
+        std::cout << cyan() << "│" << reset() << "\n"
+                  << cyan() << "◇" << reset() << "  " << bold() << name << reset() << "\n";
+    }
+    void rail() const { std::cout << cyan() << "│" << reset() << "\n"; }
+    void note(const std::string &msg) const {
+        std::cout << cyan() << "│" << reset() << "  " << green() << "✓ " << reset() << msg << "\n";
+    }
+    void warn(const std::string &msg) const {
+        std::cout << cyan() << "│" << reset() << "  " << yellow() << "▲ " << msg << reset() << "\n";
+    }
+    void done(const std::string &msg) const {
+        std::cout << cyan() << "└" << reset() << "  " << msg << "\n\n";
+    }
 
-bool ask_yes(const std::string &label, bool def, bool &out) {
-    std::string s;
-    if (!ask(label, def ? "Y/n" : "y/N", s))
-        return false;
-    if (s == "Y/n" || s == "y/N") { out = def; return true; }
-    char c = static_cast<char>(std::tolower(static_cast<unsigned char>(s[0])));
-    out = (c == 'y');
-    return true;
-}
+    // Asks one question. Shows title, a dimmed hint, and a prompt with the
+    // default; on a TTY the three lines collapse into one confirmed line.
+    bool ask(const std::string &title, const std::string &hint, const std::string &def,
+             std::string &out) const {
+        std::cout << cyan() << "◆" << reset() << "  " << bold() << title << reset() << "\n";
+        int lines = 1;
+        if (!hint.empty()) {
+            std::cout << cyan() << "│" << reset() << "  " << dim() << hint << reset() << "\n";
+            lines++;
+        }
+        std::cout << cyan() << "│" << reset() << "  " << cyan() << "›" << reset() << " ";
+        if (!def.empty())
+            std::cout << dim() << def << reset() << " ";
+        std::cout << std::flush;
+        lines++;
+
+        std::string line;
+        if (!std::getline(std::cin, line)) {
+            std::cout << "\n";
+            return false;
+        }
+        auto b = line.find_first_not_of(" \t");
+        auto e = line.find_last_not_of(" \t\r");
+        line = (b == std::string::npos) ? "" : line.substr(b, e - b + 1);
+        out = line.empty() ? def : line;
+
+        if (tty) {
+            // Up over the question block, clear it, print the answer line
+            std::cout << "\033[" << lines << "A\033[J";
+            std::cout << dim() << "◇" << reset() << "  " << title << dim() << " · " << reset()
+                      << (out.empty() ? dim() + "skipped" : green() + out) << reset() << "\n";
+        } else {
+            std::cout << "\n"; // piped input is not echoed
+        }
+        return true;
+    }
+
+    bool ask_int(const std::string &title, const std::string &hint, long def, long lo,
+                 long hi, long &out) const {
+        while (true) {
+            std::string v;
+            if (!ask(title, hint, std::to_string(def), v))
+                return false;
+            char *endp = nullptr;
+            long n = std::strtol(v.c_str(), &endp, 10);
+            if (endp && *endp == '\0' && n >= lo && n <= hi) {
+                out = n;
+                return true;
+            }
+            warn("enter a number between " + std::to_string(lo) + " and " + std::to_string(hi));
+        }
+    }
+
+    bool ask_yes(const std::string &title, const std::string &hint, bool def, bool &out) const {
+        std::string v;
+        if (!ask(title, hint, def ? "yes" : "no", v))
+            return false;
+        char ch = static_cast<char>(std::tolower(static_cast<unsigned char>(v[0])));
+        out = (ch == 'y');
+        return true;
+    }
+};
 
 std::string expand_home(std::string p) {
     if (!p.empty() && p[0] == '~') {
@@ -301,12 +356,20 @@ std::string expand_home(std::string p) {
     return p;
 }
 
+std::string shorten_home(const std::string &p) {
+    const char *home = std::getenv("HOME");
+    if (home && p.rfind(home, 0) == 0)
+        return "~" + p.substr(std::strlen(home));
+    return p;
+}
+
 } // namespace
 
 // Interactive config builder. Starts from the repo's default config, asks
 // for the parameters that matter, returns the config and where it was
 // saved. Returns false if the user bailed (EOF).
 static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
+    Ui ui;
     fs::path root = repo_root();
     fs::path base = root.empty() ? fs::path() : root / "configs" / "default.json";
     json c;
@@ -326,13 +389,16 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     for (auto &[k, v] : c["symbols"].items())
         all_syms.push_back(k);
 
-    std::cout << "\nmktsim: set up an exchange (Enter keeps the default)\n\n";
+    ui.banner("mktsim · set up an exchange");
+    std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim()
+              << "Enter keeps the default shown after ›" << ui.reset() << "\n";
 
-    // Symbols
+    /* ---- market ---- */
+    ui.section("Market");
     std::string s;
-    if (!ask("Symbols: 'all' (" + std::to_string(all_syms.size()) +
-             " from configs/default.json), a count, or a comma list",
-             "all", s))
+    if (!ui.ask("Symbols",
+                "all (" + std::to_string(all_syms.size()) + " from configs/default.json), a count like 20, or a list like AAPL,MSFT",
+                "all", s))
         return false;
     json syms = json::object();
     if (s == "all") {
@@ -341,9 +407,8 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
         long n = std::strtol(s.c_str(), nullptr, 10);
         for (long i = 0; i < n && i < (long)all_syms.size(); i++)
             syms[all_syms[i]] = json::object();
-        if (n > (long)all_syms.size())
-            for (long i = all_syms.size(); i < n; i++)
-                syms["SYM" + std::to_string(i + 1)] = json::object();
+        for (long i = all_syms.size(); i < n; i++)
+            syms["SYM" + std::to_string(i + 1)] = json::object();
     } else {
         std::stringstream ss(s);
         std::string t;
@@ -357,26 +422,25 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
         }
     }
     if (syms.empty()) {
-        std::cout << "    no symbols; using AAPL\n";
+        ui.warn("no symbols given; using AAPL");
         syms["AAPL"] = json::object();
     }
     c["symbols"] = syms;
 
-    // Shards
     long nsym = syms.size();
     long shards = std::min<long>(c.value("shards", 1), nsym);
-    if (!ask_int("Shards (engine threads; at most one per symbol)", std::max(1L, shards), 1, std::min(256L, nsym), shards))
+    if (!ui.ask_int("Shards", "engine threads; each symbol lives on exactly one, so at most " +
+                    std::to_string(nsym), std::max(1L, shards), 1, std::min(256L, nsym), shards))
         return false;
     c["shards"] = shards;
 
-    // Flow
     std::string flow;
     while (true) {
-        if (!ask("Synthetic order flow: calm, busy, load, or off", "calm", flow))
+        if (!ui.ask("Synthetic order flow", "calm · busy · load · off (bring your own)", "calm", flow))
             return false;
         if (flow == "calm" || flow == "busy" || flow == "load" || flow == "off")
             break;
-        std::cout << "    one of calm, busy, load, off\n";
+        ui.warn("one of calm, busy, load, off");
     }
     c = apply_flow(c, flow);
     if (flow != "off") {
@@ -384,14 +448,15 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
         for (auto &e : c["ingress"])
             if (e.value("type", "") == "flowgen")
                 sessions = e.value("sessions", 2);
-        if (!ask_int("Flow sessions (simulated participants)", sessions, 1, 64, sessions))
+        if (!ui.ask_int("Flow sessions", "simulated participants placing the synthetic orders", sessions, 1, 64, sessions))
             return false;
         for (auto &e : c["ingress"])
             if (e.value("type", "") == "flowgen")
                 e["sessions"] = sessions;
     }
 
-    // Order entry
+    /* ---- order entry ---- */
+    ui.section("Order entry");
     json ingress = json::array();
     for (auto &e : c["ingress"])
         if (e.value("type", "") == "flowgen")
@@ -406,37 +471,38 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     {
         std::string port;
         while (true) {
-            if (!ask("Order entry (BOE over TCP) port, or 'off'", std::to_string(boe.value("port", 30000)), port))
+            if (!ui.ask("BOE port", "binary order entry over TCP, used by mktsim connect and flowgen; or off",
+                        std::to_string(boe.value("port", 30000)), port))
                 return false;
             if (port == "off") { boe = nullptr; break; }
-            char *end = nullptr;
-            long v = std::strtol(port.c_str(), &end, 10);
-            if (end && *end == '\0' && v > 0 && v < 65536) { boe["port"] = v; break; }
-            std::cout << "    a port number or off\n";
+            char *endp = nullptr;
+            long v = std::strtol(port.c_str(), &endp, 10);
+            if (endp && *endp == '\0' && v > 0 && v < 65536) { boe["port"] = v; break; }
+            ui.warn("a port number, or off");
         }
         if (!boe.is_null())
             ingress.push_back(boe);
     }
 
-    // Example plugin
     for (auto &e : c["ingress"]) {
         if (e.value("type", "") == "plugin") {
             std::string path = e.value("path", "");
             long port = e.contains("config") ? e["config"].value("port", 0) : 0;
             bool keep = false;
-            if (!ask_yes("Keep the bundled plugin " + path +
-                         (port ? " on :" + std::to_string(port) : ""), false, keep))
+            if (!ui.ask_yes("Keep the bundled plugin", path + (port ? " on :" + std::to_string(port) : "") +
+                            " (a JSON-lines order entry example)", false, keep))
                 return false;
             if (keep)
                 ingress.push_back(e);
         }
     }
 
-    // Own plugins
     long next_port = 30030;
+    int added = 0;
     while (true) {
         std::string path;
-        if (!ask("Add your own ingress plugin? Path to its shared library, or Enter to continue", "", path))
+        if (!ui.ask(added ? "Add another ingress plugin" : "Add your own ingress plugin",
+                    "path to a shared library implementing gateway/include/ingress/api.h; Enter to continue", "", path))
             return false;
         if (path.empty())
             break;
@@ -446,7 +512,7 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             pp = root / pp;
         if (!fs::exists(pp, ec)) {
             bool keep = false;
-            if (!ask_yes("    " + path + " does not exist yet; add it anyway", false, keep))
+            if (!ui.ask_yes("Not found yet", path + " does not exist; add it anyway", false, keep))
                 return false;
             if (!keep)
                 continue;
@@ -454,64 +520,79 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             pp = fs::weakly_canonical(pp, ec);
         }
         long port = 0;
-        if (!ask_int("    Port for it (0 if it needs none)", next_port, 0, 65535, port))
+        if (!ui.ask_int("Port for it", "0 if it needs none", next_port, 0, 65535, port))
             return false;
         json pc = json::object();
         if (port) { pc["port"] = port; pc["bind"] = "0.0.0.0"; next_port = port + 1; }
         ingress.push_back({{"type", "plugin"}, {"path", pp.string()}, {"config", pc}});
-        std::cout << "    added " << pp.string() << "\n";
+        ui.note("added " + shorten_home(pp.string()) + (port ? " on :" + std::to_string(port) : ""));
+        added++;
     }
     c["ingress"] = ingress;
 
-    // Feed
+    /* ---- market data ---- */
+    ui.section("Market data");
     {
         std::string gp;
         std::string def = c["feed"].value("group", "239.1.1.1") + ":" + std::to_string(c["feed"].value("port", 30001));
         while (true) {
-            if (!ask("Market data multicast group:port", def, gp))
+            if (!ui.ask("Multicast group:port", "the public feed every TUI and feed_dump subscribes to", def, gp))
                 return false;
             auto k = gp.find(':');
             if (k != std::string::npos) {
-                char *end = nullptr;
-                long v = std::strtol(gp.c_str() + k + 1, &end, 10);
-                if (end && *end == '\0' && v > 0 && v < 65536) {
+                char *endp = nullptr;
+                long v = std::strtol(gp.c_str() + k + 1, &endp, 10);
+                if (endp && *endp == '\0' && v > 0 && v < 65536) {
                     c["feed"]["group"] = gp.substr(0, k);
                     c["feed"]["port"] = v;
                     break;
                 }
             }
-            std::cout << "    like 239.1.1.1:30001\n";
+            ui.warn("like 239.1.1.1:30001");
         }
     }
 
-    // Save
+    /* ---- save ---- */
+    ui.section("Save");
     std::string save;
     fs::path def_path = state_dir() / "exchange.json";
-    if (!ask("Save config as", def_path.string(), save))
+    if (!ui.ask("Config file", "where to write the config; mktsim up <path> starts it later", shorten_home(def_path.string()), save))
         return false;
     fs::path sp = expand_home(save);
     fs::create_directories(sp.parent_path().empty() ? fs::path(".") : sp.parent_path(), ec);
     {
         std::ofstream out(sp);
         if (!out) {
-            std::cerr << "mktsim: cannot write " << sp.string() << "\n";
+            ui.warn("cannot write " + sp.string());
             return false;
         }
         out << c.dump(4) << "\n";
     }
 
-    // Summary
-    std::cout << "\n  symbols " << syms.size() << " · shards " << shards << " · flow " << flow;
-    std::cout << " · ingress:";
+    /* ---- summary ---- */
+    std::ostringstream ing;
     for (auto &e : ingress) {
         std::string t = e.value("type", "?");
         if (t == "flowgen") continue;
-        std::cout << " " << t;
-        if (e.contains("port")) std::cout << ":" << e["port"].get<long>();
-        else if (e.contains("config") && e["config"].contains("port")) std::cout << ":" << e["config"]["port"].get<long>();
+        ing << (ing.tellp() > 0 ? " · " : "") << t;
+        if (e.contains("port")) ing << ":" << e["port"].get<long>();
+        else if (e.contains("config") && e["config"].contains("port")) ing << ":" << e["config"]["port"].get<long>();
     }
-    std::cout << "\n  feed " << c["feed"]["group"].get<std::string>() << ":" << c["feed"]["port"].get<long>()
-              << "\n  saved " << sp.string() << "\n\n";
+    auto row = [&](const std::string &k, const std::string &v) {
+        std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "│ " << ui.reset()
+                  << ui.dim() << k << ui.reset() << std::string(k.size() < 10 ? 10 - k.size() : 1, ' ')
+                  << v << "\n";
+    };
+    ui.rail();
+    std::cout << ui.cyan() << "◇" << ui.reset() << "  " << ui.bold() << "Summary" << ui.reset() << "\n";
+    std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "┌" << ui.reset() << "\n";
+    row("symbols", std::to_string(syms.size()));
+    row("shards", std::to_string(shards));
+    row("flow", flow == "off" ? "off" : flow);
+    row("ingress", ing.str().empty() ? "none" : ing.str());
+    row("feed", c["feed"]["group"].get<std::string>() + ":" + std::to_string(c["feed"]["port"].get<long>()));
+    row("saved", shorten_home(sp.string()));
+    std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "└" << ui.reset() << "\n";
 
     out_cfg = c;
     out_path = fs::weakly_canonical(sp, ec);
@@ -525,7 +606,8 @@ int cmd_init(int argc, char **argv) {
     json c; fs::path p; std::string flow;
     if (!wizard(c, p, flow))
         return 1;
-    std::cout << "start it with: mktsim up " << p.string() << "\n";
+    Ui ui;
+    ui.done("start it with  " + ui.bold() + "mktsim up " + shorten_home(p.string()) + ui.reset());
     return 0;
 }
 
@@ -572,13 +654,15 @@ int cmd_up(int argc, char **argv) {
             out << apply_flow(c, flow).dump(4) << "\n";
             wflow = flow;
         }
+        Ui ui;
         bool go = true;
-        if (!ask_yes("Start the exchange now", true, go))
+        if (!ui.ask_yes("Start the exchange now", "runs in the background until mktsim down", true, go))
             return 1;
         if (!go) {
-            std::cout << "start it later with: mktsim up " << p.string() << "\n";
+            ui.done("start it later with  " + ui.bold() + "mktsim up " + shorten_home(p.string()) + ui.reset());
             return 0;
         }
+        ui.done("starting");
         return launch(p, p, wflow);
     }
 
