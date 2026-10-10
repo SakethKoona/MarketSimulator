@@ -99,7 +99,7 @@ and answers
 
 ```
 ACCEPTED c1 order=72057594037927937 qty=100 px=10000 leaves=100
-EXEC c1 order=72057594037927937 qty=50 px=10000 match=3
+EXEC c1 order=72057594037927937 qty=50 px=10000 leaves=50 match=3
 MODIFIED c1 order=... qty=60 px=10000 leaves=60
 CANCELLED c1 order=...
 REJECTED c1 symbol_not_found
@@ -176,7 +176,7 @@ struct Outbound {
     std::uint64_t order_id = 0;   // the exchange's id, also on the public feed
     std::uint32_t qty = 0;        // Accepted/Modified: order qty. Exec: fill qty
     std::uint64_t price = 0;      // Accepted/Modified: order px. Exec: fill px
-    std::uint32_t leaves = 0;     // Accepted/Modified: resting after the op
+    std::uint32_t leaves = 0;     // Accepted/Modified/Exec: resting after the op (Exec 0 = done)
     std::uint64_t match_id = 0;   // Exec
     std::string reason;           // Rejected / Error
 };
@@ -268,7 +268,7 @@ inline std::string encode(const Outbound &e) {
         break;
     case Outbound::Exec:
         o << "EXEC " << e.client_id << " order=" << e.order_id << " qty=" << e.qty
-          << " px=" << e.price << " match=" << e.match_id;
+          << " px=" << e.price << " leaves=" << e.leaves << " match=" << e.match_id;
         break;
     case Outbound::Cancelled:
         o << "CANCELLED " << e.client_id << " order=" << e.order_id;
@@ -491,10 +491,13 @@ struct Adapter {
             ev.qty = r->qty; ev.price = r->price; ev.leaves = r->leaves_qty;
             break;
         case MKTSIM_RPT_EXECUTION:
-            // Executions do not carry leaves; a fully filled order's id is
-            // released when the exchange rejects a later cancel/modify.
             ev.kind = protocol::Outbound::Exec;
             ev.qty = r->last_qty; ev.price = r->price; ev.match_id = r->match_id;
+            ev.leaves = r->leaves_qty;
+            if (r->leaves_qty == 0) { // order is done; release the client id
+                c.by_client.erase(id);
+                c.by_order.erase(r->order_id);
+            }
             break;
         default:
             return;
