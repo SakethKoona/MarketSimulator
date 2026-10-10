@@ -103,7 +103,7 @@ size_t n = api->poll(s, on_report, user, 1024);
 |---|---|---|
 | `ACCEPTED` | a new order was accepted; it may have filled on arrival | `request_id`, `order_id`, `qty`, `price`, `side`, `symbol_id`, `leaves_qty` (resting qty, 0 if nothing rests) |
 | `REJECTED` | a request was refused | `request_id`, `status` (`MKTSIM_ST_*`); for a new order `order_id` is 0 |
-| `EXECUTION` | one fill on `order_id` | `order_id`, `last_qty`, `price`, `match_id`, `side`. `request_id` is 0: route by `order_id` |
+| `EXECUTION` | one fill on `order_id` | `order_id`, `last_qty`, `price`, `match_id`, `side`, `leaves_qty` (quantity still open after this fill; 0 means the order is finished). `request_id` is 0: route by `order_id` |
 | `CANCELLED` | the order left the book without filling the rest | `order_id`; `request_id` set for a user cancel, 0 for an IOC/FOK remainder (`status` FOK_FAILED or OK) |
 | `MODIFIED` | a modify was applied | `request_id`, `order_id`, `qty`, `price` (0 = unchanged), `leaves_qty` |
 
@@ -119,8 +119,9 @@ Ordering guarantees, per session:
 5. `match_id` is the same value the public feed shows in its Order Executed
    message, so you can tie private reports to the public stream.
 
-Track `leaves` yourself from the quantities; the exchange does not repeat
-it on executions.
+`leaves_qty` is reported on every kind that changes it, so an adapter can
+release its client id as soon as it sees an execution with `leaves_qty`
+0, a `CANCELLED`, or a `REJECTED`.
 
 ## Reference data
 

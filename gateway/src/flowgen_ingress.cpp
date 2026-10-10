@@ -142,11 +142,13 @@ struct State {
         case MKTSIM_RPT_MODIFIED:
             s.model->modified(cl, r->leaves_qty);
             break;
-        case MKTSIM_RPT_EXECUTION: {
-            // Leaves are tracked by the model from the quantities it knows.
-            s.model->executed(cl, r->price, UINT32_MAX);
+        case MKTSIM_RPT_EXECUTION:
+            s.model->executed(cl, r->price, r->leaves_qty);
+            if (r->leaves_qty == 0) {
+                s.order_of.erase(cl);
+                s.by_order.erase(r->order_id);
+            }
             break;
-        }
         default:
             break;
         }

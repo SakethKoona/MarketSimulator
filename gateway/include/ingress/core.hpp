@@ -76,7 +76,10 @@ class OrderEntryCore {
 
     bool alive(Owner o) const;
     void push_report(Owner o, mktsim_report r);
-    void drain_fills(std::size_t shard);
+    // Routes fills to their owners. If `aggressor` is set, its executions
+    // carry a running leaves count starting from `aggressor_qty`.
+    void drain_fills(std::size_t shard, std::uint64_t aggressor = 0, std::uint32_t aggressor_qty = 0);
+    std::uint32_t resting_leaves(std::uint32_t symbol_id, std::uint64_t order_id) const;
     bool on_book(std::uint32_t symbol_id, std::uint64_t order_id) const;
 
     Exchange &ex_;

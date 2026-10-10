@@ -577,7 +577,7 @@ void BoeServer::on_report(const OrderReport &r) {
         if (it == live_.end())
             return; // not a session's order (synthetic flow)
         Live &o = it->second;
-        o.leaves = r.last_qty >= o.leaves ? 0 : o.leaves - r.last_qty;
+        o.leaves = r.leaves_qty; // the core reports leaves on every execution
         if (session_alive(o.sess, o.gen)) {
             boe::OrderExecution x{};
             x.ts_ns = ts;

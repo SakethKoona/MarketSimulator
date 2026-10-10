@@ -83,7 +83,8 @@ typedef struct mktsim_report {
     uint32_t symbol_id;
     uint32_t qty;        /* ACCEPTED: order qty. MODIFIED: new qty */
     uint32_t last_qty;   /* EXECUTION: filled qty */
-    uint32_t leaves_qty; /* ACCEPTED/MODIFIED: resting qty after the op */
+    uint32_t leaves_qty; /* ACCEPTED/MODIFIED: resting qty after the op. EXECUTION: qty still
+                            open after this fill (0 = the order is done) */
     uint64_t price;      /* ACCEPTED/MODIFIED: order px. EXECUTION: fill px */
     uint64_t match_id;   /* EXECUTION: same id as on the public feed */
     uint64_t ts_ns;      /* wall clock */

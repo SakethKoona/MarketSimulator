@@ -221,9 +221,17 @@ bool OrderEntryCore::on_book(std::uint32_t symbol_id, std::uint64_t order_id) co
     return ex_.GetBook(symbol_id).FindOrder(order_id) != nullptr;
 }
 
-void OrderEntryCore::drain_fills(std::size_t shard) {
+std::uint32_t OrderEntryCore::resting_leaves(std::uint32_t symbol_id, std::uint64_t order_id) const {
+    if (symbol_id >= symbol_shard_.size())
+        return 0;
+    const OrderNode *n = ex_.GetBook(symbol_id).FindOrder(order_id);
+    return n ? static_cast<std::uint32_t>(n->quantity) : 0;
+}
+
+void OrderEntryCore::drain_fills(std::size_t shard, std::uint64_t aggressor, std::uint32_t aggressor_qty) {
     TradeFillEvent f;
     auto &owners = owners_[shard];
+    std::uint32_t running = aggressor_qty;
     while (ex_.Sink(shard).fills().try_pop(f)) {
         mktsim_report r{};
         r.kind = MKTSIM_RPT_EXECUTION;
@@ -232,18 +240,25 @@ void OrderEntryCore::drain_fills(std::size_t shard) {
         r.price = f.price;
         r.last_qty = static_cast<std::uint32_t>(f.qty);
         r.match_id = f.trade_id;
-        // Resting side.
+        // Resting side: the fill is already applied, so the book has leaves.
         if (auto it = owners.find(f.resting_id); it != owners.end()) {
             r.order_id = f.resting_id;
             r.side = f.aggressor_side == Side::Buy ? MKTSIM_SELL : MKTSIM_BUY;
+            r.leaves_qty = resting_leaves(r.symbol_id, f.resting_id);
             push_report(it->second, r);
-            if (!on_book(r.symbol_id, f.resting_id))
+            if (r.leaves_qty == 0)
                 owners.erase(it);
         }
-        // Aggressor side; its owner entry is retired by the NEW/MODIFY path.
+        // Aggressor side: leaves counts down from its submitted quantity.
         if (auto it = owners.find(f.aggressor_id); it != owners.end()) {
             r.order_id = f.aggressor_id;
             r.side = f.aggressor_side == Side::Buy ? MKTSIM_BUY : MKTSIM_SELL;
+            if (f.aggressor_id == aggressor) {
+                running = running > r.last_qty ? running - r.last_qty : 0;
+                r.leaves_qty = running;
+            } else {
+                r.leaves_qty = resting_leaves(r.symbol_id, f.aggressor_id);
+            }
             push_report(it->second, r);
         }
     }
@@ -324,7 +339,7 @@ std::size_t OrderEntryCore::pump(std::size_t shard, std::size_t max_commands) {
             r.kind = sc == StatusCode::Success ? MKTSIM_RPT_MODIFIED : MKTSIM_RPT_REJECTED;
             push_report(c.owner, r);
             if (sc == StatusCode::Success) {
-                drain_fills(shard); // a crossing replace executes right away
+                drain_fills(shard, q.order_id, q.qty); // a crossing replace executes right away
                 auto it = owners.find(q.order_id);
                 if (it != owners.end()) {
                     std::uint32_t sym = 0;

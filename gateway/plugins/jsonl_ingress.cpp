@@ -11,7 +11,7 @@
 // Exchange → client:
 //   {"ev":"accepted","id":"c1","order":123,"qty":100,"px":10000,"leaves":100}
 //   {"ev":"rejected","id":"c1","reason":"symbol_not_found"}
-//   {"ev":"exec","id":"c1","order":123,"qty":50,"px":10000,"match":77}
+//   {"ev":"exec","id":"c1","order":123,"qty":50,"px":10000,"leaves":50,"match":77}
 //   {"ev":"cancelled","id":"c1","order":123}
 //   {"ev":"modified","id":"c1","order":123,"qty":60,"px":10010,"leaves":60}
 //   {"ev":"pong"}  {"ev":"error","msg":"..."}
@@ -234,8 +234,12 @@ struct Adapter {
                           (unsigned long long)r->order_id, r->qty, (unsigned long long)r->price, r->leaves_qty);
             break;
         case MKTSIM_RPT_EXECUTION:
-            std::snprintf(buf, sizeof(buf), "{\"ev\":\"exec\",\"id\":\"%s\",\"order\":%llu,\"qty\":%u,\"px\":%llu,\"match\":%llu}", id.c_str(),
-                          (unsigned long long)r->order_id, r->last_qty, (unsigned long long)r->price, (unsigned long long)r->match_id);
+            std::snprintf(buf, sizeof(buf), "{\"ev\":\"exec\",\"id\":\"%s\",\"order\":%llu,\"qty\":%u,\"px\":%llu,\"leaves\":%u,\"match\":%llu}", id.c_str(),
+                          (unsigned long long)r->order_id, r->last_qty, (unsigned long long)r->price, r->leaves_qty, (unsigned long long)r->match_id);
+            if (r->leaves_qty == 0) {
+                c.by_client.erase(id);
+                c.by_order.erase(r->order_id);
+            }
             break;
         default:
             return;
