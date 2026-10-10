@@ -11,6 +11,7 @@
 #include <iostream>
 #include <sstream>
 #include <sys/stat.h>
+#include <termios.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -322,6 +323,104 @@ struct Ui {
         return true;
     }
 
+    struct Option {
+        std::string label;
+        std::string desc;
+    };
+
+    // Arrow-key choice. Up/Down or j/k move, Enter confirms, a digit jumps.
+    // On a TTY the list redraws in place and folds into one line; otherwise
+    // it is a numbered text prompt.
+    bool select(const std::string &title, const std::string &hint,
+                const std::vector<Option> &opts, std::size_t def, std::size_t &out) const {
+        if (opts.empty())
+            return false;
+        if (def >= opts.size())
+            def = 0;
+
+        if (!tty) {
+            std::string h = hint;
+            for (std::size_t i = 0; i < opts.size(); i++)
+                h += (i ? "  " : (h.empty() ? "" : "  ")) + std::to_string(i + 1) + ") " + opts[i].label;
+            std::string v;
+            if (!ask(title, h, opts[def].label, v))
+                return false;
+            for (std::size_t i = 0; i < opts.size(); i++)
+                if (v == opts[i].label || v == std::to_string(i + 1)) {
+                    out = i;
+                    return true;
+                }
+            out = def;
+            return true;
+        }
+
+        // Raw mode: no echo, byte-at-a-time, signals still work.
+        termios saved{};
+        tcgetattr(STDIN_FILENO, &saved);
+        termios raw = saved;
+        raw.c_lflag &= ~(ECHO | ICANON);
+        raw.c_cc[VMIN] = 1;
+        raw.c_cc[VTIME] = 0;
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+        std::cout << "\033[?25l"; // hide cursor
+
+        std::size_t cur = def;
+        int lines = 1 + (hint.empty() ? 0 : 1) + static_cast<int>(opts.size());
+        auto draw = [&](bool first) {
+            if (!first)
+                std::cout << "\033[" << lines << "A";
+            std::cout << "\r\033[J" << cyan() << "◆" << reset() << "  " << bold() << title << reset() << "\n";
+            if (!hint.empty())
+                std::cout << cyan() << "│" << reset() << "  " << dim() << hint << reset() << "\n";
+            for (std::size_t i = 0; i < opts.size(); i++) {
+                bool on = (i == cur);
+                std::cout << cyan() << "│" << reset() << "  "
+                          << (on ? cyan() + "●" : dim() + "○") << reset() << " "
+                          << (on ? bold() : dim()) << opts[i].label << reset();
+                if (!opts[i].desc.empty())
+                    std::cout << "  " << dim() << opts[i].desc << reset();
+                std::cout << "\n";
+            }
+            std::cout << std::flush;
+        };
+        draw(true);
+
+        bool ok = true;
+        while (true) {
+            char ch;
+            ssize_t n = ::read(STDIN_FILENO, &ch, 1);
+            if (n <= 0) { ok = false; break; }
+            if (ch == '\n' || ch == '\r') break;
+            if (ch == 'j' || ch == 'J') { cur = (cur + 1) % opts.size(); draw(false); continue; }
+            if (ch == 'k' || ch == 'K') { cur = (cur + opts.size() - 1) % opts.size(); draw(false); continue; }
+            if (ch >= '1' && ch <= '9' && static_cast<std::size_t>(ch - '1') < opts.size()) {
+                cur = ch - '1'; draw(false); continue;
+            }
+            if (ch == 'q' || ch == 3) { ok = false; break; } // q / Ctrl-C
+            if (ch == '\033') {
+                char seq[2];
+                if (::read(STDIN_FILENO, &seq[0], 1) <= 0 || seq[0] != '[') continue;
+                if (::read(STDIN_FILENO, &seq[1], 1) <= 0) continue;
+                if (seq[1] == 'A') cur = (cur + opts.size() - 1) % opts.size();
+                else if (seq[1] == 'B') cur = (cur + 1) % opts.size();
+                else continue;
+                draw(false);
+            }
+        }
+
+        std::cout << "\033[?25h"; // show cursor
+        tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+        if (!ok) {
+            std::cout << "\n";
+            return false;
+        }
+        std::cout << "\033[" << lines << "A\r\033[J";
+        std::cout << dim() << "◇" << reset() << "  " << title << dim() << " · " << reset()
+                  << green() << opts[cur].label << reset() << "\n";
+        out = cur;
+        return true;
+    }
+
     bool ask_int(const std::string &title, const std::string &hint, long def, long lo,
                  long hi, long &out) const {
         while (true) {
@@ -339,11 +438,10 @@ struct Ui {
     }
 
     bool ask_yes(const std::string &title, const std::string &hint, bool def, bool &out) const {
-        std::string v;
-        if (!ask(title, hint, def ? "yes" : "no", v))
+        std::size_t idx = 0;
+        if (!select(title, hint, {{"yes", ""}, {"no", ""}}, def ? 0 : 1, idx))
             return false;
-        char ch = static_cast<char>(std::tolower(static_cast<unsigned char>(v[0])));
-        out = (ch == 'y');
+        out = (idx == 0);
         return true;
     }
 };
@@ -396,10 +494,26 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     /* ---- market ---- */
     ui.section("Market");
     std::string s;
-    if (!ui.ask("Symbols",
-                "all (" + std::to_string(all_syms.size()) + " from configs/default.json), a count like 20, or a list like AAPL,MSFT",
-                "all", s))
-        return false;
+    {
+        std::size_t mode = 0;
+        if (!ui.select("Symbols", "",
+                       {{"all", std::to_string(all_syms.size()) + " tickers from configs/default.json"},
+                        {"a count", "the first N of those"},
+                        {"a list", "your own tickers, comma separated"}},
+                       0, mode))
+            return false;
+        if (mode == 0) {
+            s = "all";
+        } else if (mode == 1) {
+            long n = 10;
+            if (!ui.ask_int("How many", "1 to " + std::to_string(all_syms.size()) + "; more than that adds SYM101, SYM102, ...", 10, 1, 10000, n))
+                return false;
+            s = std::to_string(n);
+        } else {
+            if (!ui.ask("Tickers", "comma separated, up to 8 characters each", "AAPL,MSFT,GOOG", s))
+                return false;
+        }
+    }
     json syms = json::object();
     if (s == "all") {
         syms = c["symbols"];
@@ -435,12 +549,17 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     c["shards"] = shards;
 
     std::string flow;
-    while (true) {
-        if (!ui.ask("Synthetic order flow", "calm · busy · load · off (bring your own)", "calm", flow))
+    {
+        static const char *names[] = {"calm", "busy", "load", "off"};
+        std::size_t idx = 0;
+        if (!ui.select("Synthetic order flow", "built-in participants that keep the books alive",
+                       {{"calm", "a few orders a second per symbol"},
+                        {"busy", "active two-sided flow, frequent trades"},
+                        {"load", "as fast as the exchange will take"},
+                        {"off", "no synthetic flow; bring your own ingress"}},
+                       0, idx))
             return false;
-        if (flow == "calm" || flow == "busy" || flow == "load" || flow == "off")
-            break;
-        ui.warn("one of calm, busy, load, off");
+        flow = names[idx];
     }
     c = apply_flow(c, flow);
     if (flow != "off") {
@@ -469,16 +588,21 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
         boe = {{"type", "boe"}, {"port", 30000}, {"bind", "0.0.0.0"}, {"heartbeat_ms", 1000},
                {"timeout_ms", 5000}, {"poll_ms", 1}, {"max_sessions", 64}};
     {
-        std::string port;
-        while (true) {
-            if (!ui.ask("BOE port", "binary order entry over TCP, used by mktsim connect and flowgen; or off",
-                        std::to_string(boe.value("port", 30000)), port))
+        std::size_t idx = 0;
+        long cur_port = boe.value("port", 30000);
+        if (!ui.select("Order entry (BOE over TCP)", "used by mktsim connect, flowgen and any BOE client",
+                       {{"on :" + std::to_string(cur_port), "the default port"},
+                        {"on another port", ""},
+                        {"off", "no BOE; orders only through your own ingress"}},
+                       0, idx))
+            return false;
+        if (idx == 2) {
+            boe = nullptr;
+        } else if (idx == 1) {
+            long v = cur_port;
+            if (!ui.ask_int("BOE port", "", cur_port, 1, 65535, v))
                 return false;
-            if (port == "off") { boe = nullptr; break; }
-            char *endp = nullptr;
-            long v = std::strtol(port.c_str(), &endp, 10);
-            if (endp && *endp == '\0' && v > 0 && v < 65536) { boe["port"] = v; break; }
-            ui.warn("a port number, or off");
+            boe["port"] = v;
         }
         if (!boe.is_null())
             ingress.push_back(boe);

@@ -112,6 +112,11 @@ mktsim: set up an exchange (Enter keeps the default)
 exchange up (pid 57133)
 ```
 
+Multiple-choice questions (symbols, flow profile, order entry, yes/no) are
+pick-lists: Up/Down or j/k move, Enter confirms, a digit jumps; piped input
+answers them with the option's number or label. Text questions take Enter
+for the default.
+
 Your own ingress is a shared library implementing `gateway/include/ingress/api.h`;
 the wizard adds it to the config's `ingress` list with the port you give it.
 `mktsim init` asks the same questions and only writes the config.
