@@ -48,7 +48,8 @@ add_library(gateway STATIC
   ${GW_DIR}/src/ingress/core.cpp
   ${GW_DIR}/src/ingress/plugin.cpp
   ${GW_DIR}/src/retransmit_server.cpp
-  ${GW_DIR}/src/snapshot_service.cpp)
+  ${GW_DIR}/src/snapshot_service.cpp
+  ${GW_DIR}/src/flowgen_ingress.cpp)
 target_include_directories(gateway PUBLIC ${GW_DIR}/include)
 target_link_libraries(gateway PUBLIC engine ${CMAKE_DL_LIBS})
 

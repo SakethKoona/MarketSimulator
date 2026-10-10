@@ -1,48 +1,32 @@
 #!/usr/bin/env bash
-# Starts the exchange, order flow and the TUI. With tmux: three panes in one
-# window; without: exchange and flowgen in the background, feedviz in front.
+# The user flow: an exchange that runs as a long-lived service with the
+# built-in demo flow (or your own ingress adapter), and a TUI you attach
+# whenever you like.
 #
-#   scripts/demo.sh [--profile calm|busy] [--rate N] [--sessions N] [--theme NAME]
+#   scripts/demo.sh up [config]      start the exchange in the background
+#   scripts/demo.sh tui [args]       attach the TUI (any time, as often as you like)
+#   scripts/demo.sh status | logs | down
+#   scripts/demo.sh                  up + tui
 set -euo pipefail
 cd "$(dirname "$0")/.."
-
-PROFILE=calm RATE="" SESSIONS=4 THEME=amber IFACE=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --profile) PROFILE=$2; shift 2;;
-    --rate) RATE=$2; shift 2;;
-    --sessions) SESSIONS=$2; shift 2;;
-    --theme) THEME=$2; shift 2;;
-    *) echo "usage: $0 [--profile calm|busy] [--rate N] [--sessions N] [--theme NAME]"; exit 2;;
-  esac
-done
-
 EX=build/gateway/exchange_server
-FG=build/gateway/flowgen
 FV=clients/feedviz/target/release/feedviz
-for b in "$EX" "$FG" "$FV"; do
-  [ -x "$b" ] || { echo "missing $b; run: make"; exit 1; }
-done
-# Same-host multicast on macOS needs the loopback interface on both sides.
-case "$(uname -s)" in Darwin) IFACE="--iface 127.0.0.1";; esac
-FLOW_ARGS="--sessions $SESSIONS --profile $PROFILE"
-[ -n "$RATE" ] && FLOW_ARGS="$FLOW_ARGS --rate $RATE"
+CFG=${CFG:-configs/default.json}
+case "$(uname -s)" in Darwin) IFACE="--iface 127.0.0.1";; *) IFACE="";; esac
+STATE=${XDG_STATE_HOME:-$HOME/.local/state}/mktsim
 
-if command -v tmux >/dev/null 2>&1 && [ -z "${NO_TMUX:-}" ]; then
-  S=mktsim
-  tmux kill-session -t $S 2>/dev/null || true
-  tmux new-session -d -s $S -n demo "$EX configs/default.json"
-  tmux split-window -t $S -v -l 8 "sleep 0.7; $FG $FLOW_ARGS"
-  tmux split-window -t $S:0.0 -h -l 70% "sleep 1.0; $FV $IFACE --theme $THEME"
-  tmux select-pane -t $S:0.2
-  exec tmux attach -t $S
-else
-  "$EX" configs/default.json > /tmp/mktsim-exchange.log 2>&1 &
-  EXP=$!
-  sleep 0.7
-  "$FG" $FLOW_ARGS > /tmp/mktsim-flowgen.log 2>&1 &
-  FGP=$!
-  trap 'kill $FGP $EXP 2>/dev/null' EXIT
-  sleep 0.5
-  "$FV" $IFACE --theme "$THEME"
-fi
+cmd=${1:-}; shift || true
+case "$cmd" in
+  up)     [ -x "$EX" ] || { echo "missing $EX; run: make"; exit 1; }
+          "$EX" "${1:-$CFG}" --daemon ;;
+  down)   "$EX" --stop ;;
+  status) "$EX" --status ;;
+  logs)   tail -n 50 -f "$STATE/exchange.log" ;;
+  tui)    [ -x "$FV" ] || { echo "missing $FV; run: make"; exit 1; }
+          exec "$FV" $IFACE "$@" ;;
+  "")     [ -x "$EX" ] && [ -x "$FV" ] || { echo "run: make"; exit 1; }
+          "$EX" --status >/dev/null 2>&1 || "$EX" "$CFG" --daemon
+          sleep 0.5
+          exec "$FV" $IFACE "$@" ;;
+  *)      echo "usage: $0 [up [config] | tui [args] | status | logs | down]"; exit 2 ;;
+esac

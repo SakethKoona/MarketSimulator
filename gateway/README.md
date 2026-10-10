@@ -18,19 +18,30 @@ needed. Requires the nlohmann JSON headers in `../engine/third_party`.
 
 ```
 # from the repo root
-build/gateway/exchange_server configs/default.json          # engine + feed + BOE, no flow
-build/gateway/flowgen --sessions 4 --rate 20000              # order flow over BOE/TCP
-build/gateway/feed_dump                                      # watch the feed
+build/gateway/exchange_server configs/default.json --daemon   # service: engine + feed + ingress + demo flow
+build/gateway/exchange_server --status                        # pid, log path
+build/gateway/exchange_server --stop
+build/gateway/feed_dump                                       # watch the feed
+build/gateway/flowgen --sessions 4 --rate 20000               # extra flow over BOE/TCP (load tests)
 ```
 
-`exchange_server` runs the engine, the feed publisher and the BOE gateway.
-Order flow comes in over BOE; `flowgen` is the external generator. Flags:
-`--rate N` turns on the old in-process synthetic generator (default 0),
-`--seconds S` stops automatically, `--quiet` suppresses the per-second
-stats, `--capture FILE` appends every sent packet to FILE (u32 little-endian
+`exchange_server` runs the engine, the feed publisher, the retransmit and
+snapshot servers, and every ingress adapter listed in the config. With the
+default config that includes the built-in `flowgen` adapter, so the service
+is a live market on its own. `--daemon` detaches with a pid file and log
+under `$XDG_STATE_HOME/mktsim` or `~/.local/state/mktsim` (`--pidfile`,
+`--logfile` override); SIGTERM or `--stop` shuts it down cleanly. Other
+flags: `--rate N` turns on the legacy in-thread generator (default 0),
+`--seconds S` stops automatically, `--quiet` suppresses the stats line,
+`--capture FILE` appends every sent packet to FILE (u32 little-endian
 length + raw MoldUDP64 packet) and, at shutdown, writes `FILE.books.txt`
-with the final levels (`symbol_id side price qty count`). Captures are the
-replay and golden-test input for `clients/feedviz`.
+with the final levels. Captures are the replay and golden-test input for
+`clients/feedviz`.
+
+The `flowgen` adapter and the `flowgen` tool share one market model
+(`include/flow/model.hpp`); the adapter submits through the ingress API
+in-process, the tool over BOE/TCP. Adapter config:
+`{"type":"flowgen","profile":"calm|busy|load","sessions":2,"rate":0,"seed":1}`.
 
 `flowgen` opens N BOE sessions, each on its own thread, and drives a
 market-like mix: each symbol has a mean-reverting fundamental with rare

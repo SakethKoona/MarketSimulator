@@ -119,6 +119,14 @@
     "shards": 4,
     "ingress": [
         {
+            "type": "flowgen",
+            "enabled": true,
+            "profile": "calm",
+            "sessions": 2,
+            "seed": 1,
+            "_comment": "built-in demo order flow; set enabled false when bringing your own ingress"
+        },
+        {
             "type": "boe",
             "port": 30000,
             "bind": "0.0.0.0",

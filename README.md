@@ -26,21 +26,31 @@ Requirements: a C++20 compiler, CMake 3.20+, Rust stable, tmux (optional).
 git clone https://github.com/SakethKoona/MarketSimulator && cd MarketSimulator
 make            # builds engine, gateway, plugins (CMake) and feedviz (cargo)
 make test       # engine suite, gateway suite incl. feed reconstruction, Rust tests
-make demo       # exchange + order flow + TUI in a tmux window
+make up         # start the exchange as a background service (keeps running)
+make tui        # attach the terminal; q to leave, run again any time
+make down       # stop the exchange
 ```
 
-`make demo` opens three panes: the exchange, `flowgen` sending orders over
-BOE at a calm rate across the configured symbols, and `feedviz` listening
-on the multicast feed. Press `T` for themes, `/` to find a symbol, `e` for
-the per-message view, `Enter` on a row to inspect one message to the byte,
-`q` to quit. Without tmux the same runs with feedviz in front.
+The exchange is a long-lived process. `make up` starts it detached with a
+pid file and a log under `~/.local/state/mktsim/`; by default it runs the
+built-in demo order flow in-process (the `flowgen` ingress adapter in the
+config, a calm, market-like mix across all configured symbols), so it is a
+live market from the first second. Set that adapter's `enabled` to false
+to drive it with your own ingress instead. `make status` and `make logs`
+show what it's doing; `make tui` attaches `feedviz`, which loads a
+snapshot of every book on join, so it doesn't matter when you open it or
+how many times. `make demo` does `up` then `tui` in one go.
+
+In the TUI: `T` themes, `/` find a symbol, `e` the per-message view,
+`Enter` on a row inspects one message to the byte, `q` quits.
 
 By hand, from the repo root:
 
 ```
-build/gateway/exchange_server configs/default.json
-build/gateway/flowgen --profile calm                       # or --rate 20000 --sessions 8
-clients/feedviz/target/release/feedviz --iface 127.0.0.1   # --iface only needed on macOS
+build/gateway/exchange_server configs/default.json --daemon     # or without --daemon, in the foreground
+build/gateway/exchange_server --status | --stop
+clients/feedviz/target/release/feedviz --iface 127.0.0.1         # --iface only needed on macOS
+build/gateway/flowgen --profile busy                             # extra flow over BOE/TCP, e.g. for load
 ```
 
 Place an order yourself with `python3 gateway/tools/boe_client.py demo`, or

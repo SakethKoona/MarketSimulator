@@ -6,6 +6,7 @@
 #include "exchange.hpp"
 #include "boe_server.hpp"
 #include "feed_publisher.hpp"
+#include "flowgen_ingress.hpp"
 #include "ingress/core.hpp"
 #include "ingress/plugin.hpp"
 #include "retransmit_server.hpp"
@@ -17,14 +18,113 @@
 #include <cstdio>
 #include <cstring>
 #include <atomic>
+#include <cstdlib>
+#include <fcntl.h>
 #include <memory>
 #include <random>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <string>
 #include <thread>
 #include <vector>
 
 static volatile std::sig_atomic_t g_stop = 0;
 static void on_sig(int) { g_stop = 1; }
+
+// Service plumbing: state dir, pid file, log file, detaching, stopping.
+static std::string state_dir() {
+    if (const char *x = std::getenv("XDG_STATE_HOME"); x && *x)
+        return std::string(x) + "/mktsim";
+    if (const char *h = std::getenv("HOME"); h && *h)
+        return std::string(h) + "/.local/state/mktsim";
+    return "/tmp/mktsim";
+}
+static void mkdirs(const std::string &dir) {
+    std::string cur;
+    for (std::size_t i = 0; i < dir.size(); ++i) {
+        cur += dir[i];
+        if (dir[i] == '/' || i + 1 == dir.size())
+            ::mkdir(cur.c_str(), 0755);
+    }
+}
+static pid_t read_pid(const std::string &pidfile) {
+    FILE *f = std::fopen(pidfile.c_str(), "r");
+    if (!f)
+        return 0;
+    long pid = 0;
+    if (std::fscanf(f, "%ld", &pid) != 1)
+        pid = 0;
+    std::fclose(f);
+    return static_cast<pid_t>(pid);
+}
+static bool alive(pid_t pid) { return pid > 0 && ::kill(pid, 0) == 0; }
+
+static int do_stop(const std::string &pidfile) {
+    pid_t pid = read_pid(pidfile);
+    if (!alive(pid)) {
+        std::fprintf(stderr, "exchange_server: not running (%s)\n", pidfile.c_str());
+        ::unlink(pidfile.c_str());
+        return 1;
+    }
+    ::kill(pid, SIGTERM);
+    for (int i = 0; i < 100 && alive(pid); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (alive(pid)) {
+        std::fprintf(stderr, "exchange_server: pid %ld did not exit, sending SIGKILL\n", (long)pid);
+        ::kill(pid, SIGKILL);
+    }
+    ::unlink(pidfile.c_str());
+    std::fprintf(stderr, "exchange_server: stopped pid %ld\n", (long)pid);
+    return 0;
+}
+
+static int do_status(const std::string &pidfile, const std::string &logfile) {
+    pid_t pid = read_pid(pidfile);
+    if (!alive(pid)) {
+        std::printf("stopped\n");
+        return 1;
+    }
+    std::printf("running pid %ld\nlog %s\n", (long)pid, logfile.c_str());
+    return 0;
+}
+
+// Double-fork, new session, stdio to the log. Returns in the daemon child
+// only; the parent prints the pid and exits.
+static void daemonize(const std::string &pidfile, const std::string &logfile) {
+    pid_t pid = ::fork();
+    if (pid < 0) { std::perror("fork"); std::exit(1); }
+    if (pid > 0) {
+        // Wait briefly for the grandchild's pid file so the caller can read it.
+        for (int i = 0; i < 50; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            if (pid_t p = read_pid(pidfile); alive(p)) {
+                std::fprintf(stderr, "exchange_server: started pid %ld, log %s\n", (long)p, logfile.c_str());
+                std::exit(0);
+            }
+        }
+        std::fprintf(stderr, "exchange_server: started (pid file not yet visible), log %s\n", logfile.c_str());
+        std::exit(0);
+    }
+    if (::setsid() < 0) std::exit(1);
+    pid = ::fork();
+    if (pid < 0) std::exit(1);
+    if (pid > 0) ::_exit(0);
+    ::umask(022);
+    int fd = ::open(logfile.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd >= 0) {
+        ::dup2(fd, STDOUT_FILENO);
+        ::dup2(fd, STDERR_FILENO);
+        if (fd > 2) ::close(fd);
+    }
+    int nul = ::open("/dev/null", O_RDONLY);
+    if (nul >= 0) { ::dup2(nul, STDIN_FILENO); if (nul > 2) ::close(nul); }
+    ::setvbuf(stderr, nullptr, _IOLBF, 0);
+    if (FILE *f = std::fopen(pidfile.c_str(), "w")) {
+        std::fprintf(f, "%ld\n", (long)::getpid());
+        std::fclose(f);
+    }
+}
 
 static FeedConfig feed_config_from(const json &cfg) {
     FeedConfig f;
@@ -103,17 +203,67 @@ int main(int argc, char **argv) {
     double seconds = 0; // 0 = until SIGINT
     bool quiet = false;
     std::string capture;
+    bool daemon = false, stop_cmd = false, status_cmd = false;
+    std::string pidfile = state_dir() + "/exchange.pid";
+    std::string logfile = state_dir() + "/exchange.log";
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--rate") && i + 1 < argc) rate = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) seconds = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--quiet")) quiet = true;
         else if (!std::strcmp(argv[i], "--capture") && i + 1 < argc) capture = argv[++i];
+        else if (!std::strcmp(argv[i], "--daemon")) daemon = true;
+        else if (!std::strcmp(argv[i], "--stop")) stop_cmd = true;
+        else if (!std::strcmp(argv[i], "--status")) status_cmd = true;
+        else if (!std::strcmp(argv[i], "--pidfile") && i + 1 < argc) pidfile = argv[++i];
+        else if (!std::strcmp(argv[i], "--logfile") && i + 1 < argc) logfile = argv[++i];
+        else if (!std::strcmp(argv[i], "-h") || !std::strcmp(argv[i], "--help")) {
+            std::printf("exchange_server [config.json] [--daemon | --stop | --status] [--pidfile P] [--logfile L]\n"
+                        "                [--rate N] [--seconds S] [--quiet] [--capture FILE]\n"
+                        "Runs the exchange until SIGINT/SIGTERM. --daemon detaches (pid and log under\n"
+                        "$XDG_STATE_HOME/mktsim or ~/.local/state/mktsim); --stop / --status act on that pid.\n");
+            return 0;
+        }
         else config_path = argv[i];
+    }
+    if (stop_cmd)
+        return do_stop(pidfile);
+    if (status_cmd)
+        return do_status(pidfile, logfile);
+    if (pid_t other = read_pid(pidfile); daemon && alive(other)) {
+        std::fprintf(stderr, "exchange_server: already running as pid %ld (%s)\n", (long)other, pidfile.c_str());
+        return 1;
+    }
+    // Resolve the config before detaching so a bad path fails loudly here.
+    std::string resolved = config_path;
+    if (resolved.empty()) {
+        for (const char *c : {"configs/default.json", "../configs/default.json", "../../configs/default.json"})
+            if (std::ifstream(c)) { resolved = c; break; }
+        if (resolved.empty()) {
+            std::fprintf(stderr, "exchange_server: no config given and configs/default.json not found\n");
+            return 2;
+        }
+    }
+    if (daemon) {
+        mkdirs(state_dir());
+        if (!std::ifstream(resolved)) {
+            std::fprintf(stderr, "exchange_server: cannot read %s\n", resolved.c_str());
+            return 2;
+        }
+        // Make the config path absolute: the daemon keeps the cwd, but be safe.
+        if (resolved[0] != '/') {
+            char cwd[4096];
+            if (::getcwd(cwd, sizeof(cwd)))
+                resolved = std::string(cwd) + "/" + resolved;
+        }
+        daemonize(pidfile, logfile);
+        quiet = false; // the per-second line is the log
     }
     std::signal(SIGINT, on_sig);
     std::signal(SIGTERM, on_sig);
+    std::signal(SIGHUP, SIG_IGN);
 
-    json cfg = json::parse(std::ifstream(config_path.empty() ? "configs/default.json" : config_path));
+    json cfg = json::parse(std::ifstream(resolved));
+    std::fprintf(stderr, "exchange_server: config %s\n", resolved.c_str());
     Exchange ex(cfg);
 
     FeedPublisher::SymbolTable table;
@@ -179,6 +329,8 @@ int main(int argc, char **argv) {
         try {
             if (type == "boe")
                 p = IngressPlugin::builtin("boe", BoeServer::entry());
+            else if (type == "flowgen")
+                p = IngressPlugin::builtin("flowgen", flowgen_ingress_entry());
             else if (type == "plugin")
                 p = IngressPlugin::load(spec.at("path").get<std::string>());
             else {
@@ -246,7 +398,7 @@ int main(int argc, char **argv) {
         if (seconds > 0 && elapsed_ns >= seconds * 1e9)
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        if (!quiet && now - last_report >= std::chrono::seconds(1)) {
+        if (!quiet && now - last_report >= std::chrono::seconds(daemon ? 10 : 1)) {
             last_report = now;
             const auto &s = pub.stats();
             std::fprintf(stderr,
@@ -299,6 +451,8 @@ int main(int argc, char **argv) {
     snap.stop();
     retx.stop();
     pub.stop();
+    if (daemon)
+        ::unlink(pidfile.c_str());
     const auto &s = pub.stats();
     std::fprintf(stderr, "exchange_server: done. orders=%llu msgs=%llu pkts=%llu drops=%llu\n",
                  (unsigned long long)orders, (unsigned long long)s.messages.load(),

@@ -4,7 +4,7 @@ BUILD ?= build
 CMAKE_BUILD_TYPE ?= Release
 JOBS ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 
-.PHONY: all cpp rust test test-cpp test-rust demo clean format capture
+.PHONY: all cpp rust test test-cpp test-rust demo up down status logs tui clean format capture
 
 all: cpp rust
 
@@ -25,6 +25,18 @@ test-rust:
 
 demo: all
 	scripts/demo.sh
+
+# The service flow: start once, attach whenever, stop when done.
+up: cpp
+	scripts/demo.sh up
+down:
+	scripts/demo.sh down
+status:
+	scripts/demo.sh status
+logs:
+	scripts/demo.sh logs
+tui: rust
+	scripts/demo.sh tui
 
 # Record a feed capture for feedviz's golden test and replay mode.
 capture: cpp
