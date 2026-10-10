@@ -5,8 +5,10 @@
 //   mktsim connect [host:port] [SCRIPT|-]
 //                                same commands over BOE to a running exchange
 //   mktsim tui [feedviz args]    open the feed TUI (clients/feedviz)
-//   mktsim up [config] [--flow calm|busy|load|off]
-//                                start exchange_server as a daemon
+//   mktsim up [config] [--flow calm|busy|load|off] [-i] [-y]
+//                                start exchange_server as a daemon; with no
+//                                config on a terminal it asks for the setup
+//   mktsim init                  the same questions, config only
 //   mktsim down | status | logs [-f]
 //
 // Config defaults to configs/default.json found relative to the working
@@ -31,7 +33,8 @@ static int usage() {
                  "  mktsim run SCRIPT|- [config.json]\n"
                  "  mktsim connect [host:port] [SCRIPT|-]\n"
                  "  mktsim tui [feedviz args]\n"
-                 "  mktsim up [config.json] [--flow calm|busy|load|off]\n"
+                 "  mktsim up [config.json] [--flow calm|busy|load|off] [-i] [-y]\n"
+                 "  mktsim init                  build a config interactively\n"
                  "  mktsim down | status | logs [-f] [-n N]\n";
     return 2;
 }
@@ -143,6 +146,8 @@ int main(int argc, char **argv) {
         return run_tui(argc, argv);
     if (mode == "up")
         return service::cmd_up(argc, argv);
+    if (mode == "init")
+        return service::cmd_init(argc, argv);
     if (mode == "down")
         return service::cmd_down(argc, argv);
     if (mode == "status")

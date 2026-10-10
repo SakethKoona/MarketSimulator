@@ -10,7 +10,8 @@ mktsim shell [config.json]                 # interactive, in-process exchange
 mktsim run SCRIPT|- [config.json]      # script, in-process, exit 1 on failure
 mktsim connect [host:port] [SCRIPT|-]  # same commands over BOE to exchange_server
 mktsim tui [feedviz args]              # open the feed TUI (clients/feedviz)
-mktsim up [config] [--flow calm|busy|load|off]   # start the exchange as a daemon
+mktsim up [config] [--flow ...] [-i|-y]   # start the exchange as a daemon (asks for the setup if no config)
+mktsim init                            # interactive config builder, no start
 mktsim down | status | logs [-f]       # stop it, inspect it, read its log
 make cli-test                              # runs cli/scenarios/*.txt
 ```
@@ -85,8 +86,40 @@ mktsim tui --replay ../clients/feedviz/testdata/capture.bin
 
 ## Running the exchange as a service
 
+`mktsim up` with no config on a terminal asks for the setup, like `npm init`:
+
 ```
-mktsim up                     # exchange_server --daemon with configs/default.json
+$ mktsim up
+mktsim: set up an exchange (Enter keeps the default)
+
+  Symbols: 'all' (100 from configs/default.json), a count, or a comma list [all]: 20
+  Shards (engine threads; at most one per symbol) [4]:
+  Synthetic order flow: calm, busy, load, or off [calm]: busy
+  Flow sessions (simulated participants) [2]:
+  Order entry (BOE over TCP) port, or 'off' [30000]:
+  Keep the bundled plugin build/gateway/jsonl_ingress on :30020 [y/N]:
+  Add your own ingress plugin? Path to its shared library, or Enter to continue: ~/dev/fix_bridge.dylib
+      Port for it (0 if it needs none) [30030]:
+  Add your own ingress plugin? Path to its shared library, or Enter to continue:
+  Market data multicast group:port [239.1.1.1:30001]:
+  Save config as [~/.local/state/mktsim/exchange.json]:
+
+  symbols 20 · shards 4 · flow busy · ingress: boe:30000 plugin:30030
+  feed 239.1.1.1:30001
+  saved /Users/you/.local/state/mktsim/exchange.json
+
+  Start the exchange now [Y/n]:
+exchange up (pid 57133)
+```
+
+Your own ingress is a shared library implementing `gateway/include/ingress/api.h`;
+the wizard adds it to the config's `ingress` list with the port you give it.
+`mktsim init` asks the same questions and only writes the config.
+`mktsim up -y` skips the questions and uses `configs/default.json`;
+`mktsim up path.json` uses a config you already have; `-i` forces the questions.
+
+```
+mktsim up                     # interactive setup, then start
 mktsim up --flow busy         # same, with the built-in flowgen set to the busy profile
 mktsim up --flow off          # no synthetic flow: bring your own ingress
 mktsim status                 # pid, uptime, symbols, shards, ports, last log line

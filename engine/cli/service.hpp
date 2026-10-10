@@ -23,7 +23,8 @@ std::filesystem::path repo_root();
 // Finds exchange_server: CMake or engine-Makefile build dirs, then PATH.
 std::string find_exchange_server();
 
-int cmd_up(int argc, char **argv);     // mktsim up [config] [--flow calm|busy|load|off]
+int cmd_init(int argc, char **argv);   // mktsim init: interactive config builder
+int cmd_up(int argc, char **argv);     // mktsim up [config] [--flow ...] [-i|-y]
 int cmd_down(int argc, char **argv);   // mktsim down
 int cmd_status(int argc, char **argv); // mktsim status
 int cmd_logs(int argc, char **argv);   // mktsim logs [-f] [-n N]
