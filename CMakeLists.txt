@@ -76,7 +76,7 @@ endif()
 
 # Gateway tests. They check with assert(), so keep assertions on even in
 # Release (CMake adds -DNDEBUG; -UNDEBUG comes later on the command line).
-foreach(t protocol_test spsc_ring_test mpmc_ring_test)
+foreach(t protocol_test spsc_ring_test mpmc_ring_test ingress_core_test)
   add_executable(${t} ${GW_DIR}/tests/${t}.cpp)
   target_compile_options(${t} PRIVATE -UNDEBUG)
   target_link_libraries(${t} gateway)

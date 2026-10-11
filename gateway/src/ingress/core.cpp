@@ -298,7 +298,7 @@ std::size_t OrderEntryCore::pump(std::size_t shard, std::size_t max_commands) {
             r.kind = MKTSIM_RPT_ACCEPTED;
             r.leaves_qty = res.resting ? static_cast<std::uint32_t>(res.qty_remaining) : 0;
             push_report(c.owner, r);
-            drain_fills(shard); // executions follow the acknowledgment
+            drain_fills(shard, res.order_id, q.qty); // executions follow the acknowledgment
             if (!res.resting) {
                 if (res.qty_remaining > 0) {
                     mktsim_report k{};
