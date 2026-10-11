@@ -8,7 +8,7 @@ from __future__ import annotations
 import random
 
 from .hawkes import Hawkes, Poisson
-from .strategy import Strategy
+from .trade import Strategy
 
 
 class NoiseTrader(Strategy):

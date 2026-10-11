@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <termios.h>
 #include <sys/wait.h>
@@ -37,6 +38,9 @@ fs::path state_dir() {
 fs::path pid_file() { return state_dir() / "exchange.pid"; }
 fs::path log_file() { return state_dir() / "exchange.log"; }
 static fs::path meta_file() { return state_dir() / "exchange.meta"; }
+static fs::path market_pid_file() { return state_dir() / "market.pid"; }
+static fs::path market_log_file() { return state_dir() / "market.log"; }
+static fs::path market_meta_file() { return state_dir() / "market.meta"; }
 static fs::path derived_cfg() { return state_dir() / "exchange.json"; }
 
 fs::path self_dir() {
@@ -113,6 +117,238 @@ static std::string read_last_line(const fs::path &p) {
         if (!line.empty())
             last = line;
     return last;
+}
+
+namespace { std::string expand_home(std::string p); }
+
+static pid_t read_pid_from(const fs::path &p) {
+    std::ifstream in(p);
+    long v = 0;
+    if (!(in >> v)) return 0;
+    return static_cast<pid_t>(v);
+}
+
+// Reads the ingress/feed ports a scenario needs from a config file.
+struct MarketPorts { long jsonl = 30020; std::string group = "239.1.1.1"; long feed = 30001; long snapshot = 30003; std::string iface = "127.0.0.1"; };
+static MarketPorts ports_from_config(const fs::path &cfg) {
+    MarketPorts mp;
+    try {
+        std::ifstream in(cfg);
+        json c = json::parse(in);
+        if (c.contains("ingress"))
+            for (auto &e : c["ingress"])
+                if (e.value("type", "") == "plugin" && e.value("path", "").find("jsonl") != std::string::npos && e.contains("config"))
+                    mp.jsonl = e["config"].value("port", 30020);
+        if (c.contains("feed")) {
+            mp.group = c["feed"].value("group", mp.group);
+            mp.feed = c["feed"].value("port", mp.feed);
+            mp.snapshot = c["feed"].value("snapshot_port", mp.snapshot);
+            std::string i = c["feed"].value("interface", "");
+            if (!i.empty()) mp.iface = i;
+        }
+    } catch (...) {
+    }
+    return mp;
+}
+
+static std::string used_config_from_meta() {
+    std::ifstream meta(meta_file());
+    std::string line, used, cfg;
+    while (std::getline(meta, line)) {
+        if (line.rfind("used=", 0) == 0) used = line.substr(5);
+        else if (line.rfind("config=", 0) == 0) cfg = line.substr(7);
+    }
+    return used.empty() ? cfg : used;
+}
+
+// Starts `python3 -m mktsim.market run NAME ...` detached, logging to
+// market.log, pid in market.pid. Returns 0 on success.
+static int market_start(const std::string &scenario, long workers, const std::string &symbols, long seed) {
+    if (pid_alive(read_pid_from(market_pid_file()))) {
+        std::cout << "market already running (pid " << read_pid_from(market_pid_file()) << "); `mktsim market down` first\n";
+        return 0;
+    }
+    if (!pid_alive(read_pid())) {
+        std::cerr << "mktsim market: the exchange is not running; `mktsim up` first\n";
+        return 1;
+    }
+    fs::path root = repo_root();
+    if (root.empty()) {
+        std::cerr << "mktsim market: cannot find the repo (python/mktsim)\n";
+        return 1;
+    }
+    MarketPorts mp = ports_from_config(used_config_from_meta());
+    std::error_code ec;
+    fs::create_directories(state_dir(), ec);
+
+    pid_t pid = ::fork();
+    if (pid < 0) { std::cerr << "fork failed\n"; return 1; }
+    if (pid == 0) {
+        ::setsid();
+        int fd = ::open(market_log_file().c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) { ::dup2(fd, 1); ::dup2(fd, 2); ::close(fd); }
+        int nul = ::open("/dev/null", O_RDONLY);
+        if (nul >= 0) { ::dup2(nul, 0); ::close(nul); }
+        std::string py = (root / "python").string();
+        ::setenv("PYTHONPATH", py.c_str(), 1);
+        ::setenv("PYTHONUNBUFFERED", "1", 1);
+        std::vector<std::string> args{"python3", "-m", "mktsim.market", "run", scenario,
+                                      "--port", std::to_string(mp.jsonl),
+                                      "--feed", mp.group + ":" + std::to_string(mp.feed),
+                                      "--snapshot-port", std::to_string(mp.snapshot),
+                                      "--iface", mp.iface,
+                                      "--workers", std::to_string(workers),
+                                      "--report-every", "10"};
+        if (!symbols.empty()) { args.push_back("--symbols"); args.push_back(symbols); }
+        if (seed) { args.push_back("--seed"); args.push_back(std::to_string(seed)); }
+        std::vector<char *> cargv;
+        for (auto &a : args) cargv.push_back(a.data());
+        cargv.push_back(nullptr);
+        execvp("python3", cargv.data());
+        _exit(127);
+    }
+    {
+        std::ofstream pf(market_pid_file());
+        pf << pid << "\n";
+        std::ofstream mf(market_meta_file());
+        mf << "scenario=" << scenario << "\nworkers=" << workers << "\nstarted="
+           << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "\n";
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(700));
+    if (!pid_alive(pid)) {
+        std::cerr << "mktsim market: scenario exited right away\n  log: " << read_last_line(market_log_file()) << "\n";
+        fs::remove(market_pid_file(), ec);
+        return 1;
+    }
+    std::cout << "market up: scenario " << scenario << (workers > 1 ? " (" + std::to_string(workers) + " workers)" : "")
+              << " (pid " << pid << ")\n  log: " << market_log_file().string() << "\n";
+    return 0;
+}
+
+static int market_stop() {
+    pid_t pid = read_pid_from(market_pid_file());
+    std::error_code ec;
+    if (!pid_alive(pid)) {
+        fs::remove(market_pid_file(), ec);
+        return 2; // not running
+    }
+    ::kill(pid, SIGINT);  // graceful: agents cancel and exit
+    for (int i = 0; i < 100; i++) {
+        if (!pid_alive(pid)) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    if (pid_alive(pid)) {
+        ::kill(pid, SIGTERM);
+        for (int i = 0; i < 40 && pid_alive(pid); i++)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    fs::remove(market_pid_file(), ec);
+    std::cout << "market stopped (pid " << pid << ")\n";
+    return pid_alive(pid) ? 1 : 0;
+}
+
+static int market_status() {
+    pid_t pid = read_pid_from(market_pid_file());
+    if (!pid_alive(pid)) {
+        std::cout << "market: not running\n";
+        return 1;
+    }
+    std::string scenario, workers;
+    std::ifstream mf(market_meta_file());
+    for (std::string line; std::getline(mf, line);) {
+        if (line.rfind("scenario=", 0) == 0) scenario = line.substr(9);
+        if (line.rfind("workers=", 0) == 0) workers = line.substr(8);
+    }
+    std::cout << "market: running (pid " << pid << ")  scenario " << scenario
+              << (workers != "1" && !workers.empty() ? "  workers " + workers : "") << "\n"
+              << "  log:    " << market_log_file().string() << "\n";
+    std::string last = read_last_line(market_log_file());
+    if (!last.empty()) std::cout << "  last:   " << last << "\n";
+    return 0;
+}
+
+int cmd_market(int argc, char **argv) {
+    std::string sub = argc > 2 ? argv[2] : "";
+    if (sub == "list") {
+        fs::path root = repo_root();
+        std::string py = (root / "python").string();
+        ::setenv("PYTHONPATH", py.c_str(), 1);
+        execlp("python3", "python3", "-m", "mktsim.market", "list", nullptr);
+        return 1;
+    }
+    if (sub == "up") {
+        if (argc < 4) { std::cerr << "usage: mktsim market up SCENARIO [--workers N] [--symbols A,B] [--seed N]\n"; return 2; }
+        std::string name = argv[3], symbols;
+        long workers = 1, seed = 0;
+        for (int i = 4; i < argc; i++) {
+            std::string a = argv[i];
+            if (a == "--workers" && i + 1 < argc) workers = std::atol(argv[++i]);
+            else if (a == "--symbols" && i + 1 < argc) symbols = argv[++i];
+            else if (a == "--seed" && i + 1 < argc) seed = std::atol(argv[++i]);
+        }
+        return market_start(name, workers, symbols, seed);
+    }
+    if (sub == "down") {
+        int rc = market_stop();
+        if (rc == 2) { std::cout << "market is not running\n"; return 0; }
+        return rc;
+    }
+    if (sub == "status") return market_status();
+    if (sub == "logs") {
+        std::vector<std::string> args{"tail"};
+        bool has_n = false;
+        for (int i = 3; i < argc; i++) if (std::string(argv[i]) == "-n") has_n = true;
+        if (!has_n) { args.push_back("-n"); args.push_back("50"); }
+        for (int i = 3; i < argc; i++) args.push_back(argv[i]);
+        args.push_back(market_log_file().string());
+        std::vector<char *> cargv;
+        for (auto &a : args) cargv.push_back(a.data());
+        cargv.push_back(nullptr);
+        execvp("tail", cargv.data());
+        return 1;
+    }
+    std::cerr << "usage: mktsim market list | up SCENARIO [--workers N] [--symbols A,B] [--seed N] | down | status | logs [-f]\n";
+    return 2;
+}
+
+// mktsim new (strategy|market|flow|adapter) NAME [DIR] [--port P] ...: scaffold without the questions
+int cmd_new(int argc, char **argv) {
+    if (argc < 4) {
+        std::cerr << "usage: mktsim new strategy|market|flow|adapter NAME [DIR] [--port P] [--sessions N] [--rate R] [--build]\n";
+        return 2;
+    }
+    std::string kind = argv[2], name = argv[3], dir;
+    scaffold::Spec spec;
+    spec.name = name;
+    spec.repo = repo_root();
+    spec.port = (kind == "flow") ? 0 : (kind == "adapter" ? 30030 : 30020);
+    bool do_build = false;
+    for (int i = 4; i < argc; i++) {
+        std::string a = argv[i];
+        if (a == "--port" && i + 1 < argc) spec.port = std::atoi(argv[++i]);
+        else if (a == "--sessions" && i + 1 < argc) spec.sessions = std::atoi(argv[++i]);
+        else if (a == "--rate" && i + 1 < argc) spec.rate = std::atoi(argv[++i]);
+        else if (a == "--build") do_build = true;
+        else if (a[0] != '-') dir = a;
+    }
+    std::error_code ec;
+    spec.dir = fs::absolute(fs::path(expand_home(dir.empty() ? "./" + name : dir)));
+    MarketPorts mp = ports_from_config(spec.repo / "configs" / "default.json");
+    spec.feed_group = mp.group; spec.feed_port = mp.feed; spec.snapshot_port = mp.snapshot;
+    std::string err;
+    if (kind == "strategy") { spec.market = false; err = scaffold::generate_python(spec); }
+    else if (kind == "market") { spec.market = true; err = scaffold::generate_python(spec); }
+    else if (kind == "flow") err = scaffold::generate_flow_model(spec);
+    else if (kind == "adapter") err = scaffold::generate(spec);
+    else { std::cerr << "mktsim new: kind must be strategy, market, flow or adapter\n"; return 2; }
+    if (!err.empty()) { std::cerr << "mktsim new: " << err << "\n"; return 1; }
+    std::cout << "created " << spec.dir.string() << "\n";
+    if (do_build && (kind == "flow" || kind == "adapter")) {
+        int rc = scaffold::build(spec);
+        std::cout << (rc == 0 ? "built " + scaffold::library_path(spec) : "build failed") << "\n";
+        return rc;
+    }
+    return 0;
 }
 
 static std::string fmt_duration(std::chrono::seconds s) {
@@ -243,6 +479,21 @@ static int launch(const fs::path &cfg, const fs::path &use_cfg,
               << (flow.empty() ? "" : "  (flow " + flow + ")") << "\n"
               << "  log:    " << logf.string() << "\n"
               << "  next:   mktsim tui · mktsim connect · mktsim status · mktsim down\n";
+
+    // A Python scenario recorded in the config runs as the market process
+    try {
+        std::ifstream in(use_cfg);
+        json c = json::parse(in);
+        if (c.contains("mktsim") && c["mktsim"].contains("market")) {
+            json m = c["mktsim"]["market"];
+            std::string scenario = m.value("scenario", "");
+            if (!scenario.empty()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(300)); // let the servers bind
+                market_start(scenario, m.value("workers", 1L), "", m.value("seed", 0L));
+            }
+        }
+    } catch (...) {
+    }
     return 0;
 }
 
@@ -593,162 +844,150 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     }
 
     /* ================= 2. INGRESS ================= */
-    ui.section("2 · Ingress");
+    ui.section("2 · Order flow");
 
-    json flowgen_tpl, boe_tpl;
+    json flowgen_tpl, boe_tpl, jsonl_tpl;
     for (auto &e : c["ingress"]) {
-        if (e.value("type", "") == "flowgen") flowgen_tpl = e;
-        if (e.value("type", "") == "boe") boe_tpl = e;
+        std::string ty = e.value("type", "");
+        if (ty == "flowgen") flowgen_tpl = e;
+        if (ty == "boe") boe_tpl = e;
+        if (ty == "plugin" && e.value("path", "").find("jsonl") != std::string::npos) jsonl_tpl = e;
     }
     if (flowgen_tpl.is_null())
         flowgen_tpl = {{"type", "flowgen"}, {"enabled", true}, {"profile", "calm"}, {"sessions", 2}, {"seed", 1}};
     if (boe_tpl.is_null())
         boe_tpl = {{"type", "boe"}, {"port", 30000}, {"bind", "0.0.0.0"}, {"heartbeat_ms", 1000},
                    {"timeout_ms", 5000}, {"poll_ms", 1}, {"max_sessions", 64}};
+    if (jsonl_tpl.is_null())
+        jsonl_tpl = {{"type", "plugin"}, {"path", "build/gateway/jsonl_ingress"},
+                     {"config", {{"port", 30020}, {"bind", "0.0.0.0"}}}};
 
     json ingress = json::array();
-    std::string flow = "off";
+    std::string flow = "off";          // built-in flowgen profile or off
+    std::string scenario;              // python scenario run as the market, if any
+    long scenario_workers = 1;
     std::string own_summary;
     std::vector<std::string> next_steps;
+    bool need_jsonl = false;
+    long jsonl_port = jsonl_tpl["config"].value("port", 30020);
 
     std::size_t src = 0;
-    if (!ui.select("Where do orders come from",
-                   "the demo keeps the books alive by itself; your own adapter speaks your protocol",
-                   {{"demo flow", "built-in simulated participants, plus BOE order entry for mktsim connect"},
-                    {"your own ingress", "your code places the orders: a Python project (or a C++ adapter)"},
-                    {"both", "demo flow running alongside your adapter"}},
+    if (!ui.select("Where does the order flow come from", "",
+                   {{"a predefined flow", "pick a market to trade against: built-in profiles or seeded Python scenarios"},
+                    {"my own simulator", "I write the order flow: a Python population, or a C++ model for load"},
+                    {"both", "a predefined flow running alongside my simulator"}},
                    0, src))
         return false;
-    bool want_demo = (src == 0 || src == 2);
+    bool want_pre = (src == 0 || src == 2);
     bool want_own = (src == 1 || src == 2);
 
-    if (want_demo) {
-        static const char *profiles[] = {"calm", "busy", "load"};
+    if (want_pre) {
         std::size_t pi = 0;
-        if (!ui.select("Demo flow", "how busy the simulated market is",
-                       {{"calm", "a few orders a second per symbol"},
-                        {"normal", "active two-sided flow, frequent trades"},
-                        {"heavy", "as fast as the exchange will take"}},
+        if (!ui.select("Predefined flow", "built-in ones run inside the exchange; Python scenarios run as a market process",
+                       {{"calm", "built-in · a few orders a second per symbol"},
+                        {"normal", "built-in · active two-sided flow, frequent trades"},
+                        {"heavy", "built-in · as fast as the exchange will take"},
+                        {"random", "python · Poisson noise traders and a market maker; no clustering"},
+                        {"hawkes", "python · self-exciting arrivals: activity clusters and feeds on itself"},
+                        {"trending", "python · drifting fundamental, informed traders push toward it"},
+                        {"volatile", "python · high volatility with scheduled news shocks"},
+                        {"load", "python · many fast agents; thousands of orders a second with workers"}},
                        0, pi))
             return false;
-        flow = profiles[pi];
-        long sessions = flowgen_tpl.value("sessions", 2);
-        if (!ui.ask_int("Simulated participants", "each is a session placing orders", sessions, 1, 64, sessions))
-            return false;
+        static const char *builtin[] = {"calm", "busy", "load"};
+        static const char *pyscn[] = {"random", "hawkes", "trending", "volatile", "load"};
+        if (pi < 3) {
+            flow = builtin[pi];
+            long sessions = flowgen_tpl.value("sessions", 2);
+            if (!ui.ask_int("Simulated participants", "each is a session placing orders", sessions, 1, 64, sessions))
+                return false;
+            flowgen_tpl["sessions"] = sessions;
+        } else {
+            scenario = pyscn[pi - 3];
+            need_jsonl = true;
+            if (scenario == "load") {
+                if (!ui.ask_int("Worker processes", "the agents are split over this many Python processes", 4, 1, 32, scenario_workers))
+                    return false;
+            }
+        }
+    }
+    {
         json fg = flowgen_tpl;
-        fg["enabled"] = true;
-        fg["profile"] = flow;
-        fg["sessions"] = sessions;
-        ingress.push_back(fg);
-    } else {
-        json fg = flowgen_tpl;
-        fg["enabled"] = false;
+        fg["enabled"] = (flow != "off");
+        if (flow != "off") fg["profile"] = flow;
         ingress.push_back(fg);
     }
 
-    // BOE order entry: on by default with the demo, optional otherwise
+    // BOE order entry
     {
         long cur_port = boe_tpl.value("port", 30000);
         bool keep = true;
         if (!ui.ask_yes("BOE order entry on :" + std::to_string(cur_port),
-                        "binary order entry over TCP; what mktsim connect and flowgen speak", want_demo || !want_own, keep))
+                        "binary order entry over TCP: mktsim connect, flowgen, your BOE clients", true, keep))
             return false;
         if (keep)
             ingress.push_back(boe_tpl);
     }
 
     if (want_own) {
-        json jsonl_tpl;
-        for (auto &e : c["ingress"])
-            if (e.value("type", "") == "plugin" && e.value("path", "").find("jsonl") != std::string::npos)
-                jsonl_tpl = e;
-        if (jsonl_tpl.is_null())
-            jsonl_tpl = {{"type", "plugin"}, {"path", "build/gateway/jsonl_ingress"},
-                         {"config", {{"port", 30020}, {"bind", "0.0.0.0"}}}};
-
         std::size_t how = 0;
-        if (!ui.select("Your ingress", "",
-                       {{"Python", "one file, three functions: on_start, on_report, on_tick. No build step"},
-                        {"C++ adapter", "for a custom wire protocol: a plugin project you compile; TCP and sessions handled"},
+        if (!ui.select("My simulator", "",
+                       {{"Python population", "agents in Python, one process (or several); flexible, ~5k orders/s"},
+                        {"C++ flow model", "an in-process plugin: you write next(); tens of thousands of orders/s"},
                         {"existing library", "a shared library you already built against ingress/api.h"}},
                        0, how))
             return false;
 
         if (how == 0) {
-            std::size_t kind = 0;
-            if (!ui.select("What are you building", "",
-                           {{"a trading strategy", "trade against the simulated market; sees the public book via the feed"},
-                            {"a simulated market", "a population of agents IS the order flow: Hawkes noise, makers, informed; shocks"}},
-                           want_demo ? 0 : 1, kind))
-                return false;
-            bool market = (kind == 1);
-            if (market && want_demo)
-                ui.warn("you chose demo flow too; the demo participants will trade alongside your agents");
             std::string name;
-            if (!ui.ask("Project name", "letters, digits and _", market ? "my_market" : "my_strategy", name))
+            if (!ui.ask("Project name", "letters, digits and _", "my_market", name))
                 return false;
             std::string dir;
             if (!ui.ask("Project directory", "created if missing", "./" + name, dir))
                 return false;
-            long port = jsonl_tpl["config"].value("port", 30020);
-            if (!ui.ask_int("Order entry port", "the exchange's JSON-lines adapter your Python connects to", port, 1, 65535, port))
-                return false;
-
             scaffold::Spec spec;
             spec.name = name;
             spec.dir = fs::weakly_canonical(fs::path(expand_home(dir)), ec);
             if (ec) spec.dir = fs::absolute(fs::path(expand_home(dir)));
             spec.repo = root;
-            spec.port = static_cast<int>(port);
-            spec.market = market;
+            spec.port = static_cast<int>(jsonl_port);
+            spec.market = true;
             spec.feed_group = c["feed"].value("group", "239.1.1.1");
             spec.feed_port = c["feed"].value("port", 30001);
             spec.snapshot_port = c["feed"].value("snapshot_port", 30003);
             std::string err = scaffold::generate_python(spec);
-            if (!err.empty()) {
-                ui.warn(err);
-                return false;
-            }
-            const char *main_file = market ? "market.py" : "strategy.py";
+            if (!err.empty()) { ui.warn(err); return false; }
+            need_jsonl = true;
             ui.note("created " + shorten_home(spec.dir.string()) + "/");
             std::cout << ui.cyan() << "│" << ui.reset() << "    " << ui.dim()
-                      << main_file << " (yours)  mktsim/ (client library)  README.md" << ui.reset() << "\n";
-
-            json jl = jsonl_tpl;
-            jl["config"]["port"] = port;
-            ingress.push_back(jl);
-            own_summary = name + " (python) -> jsonl:" + std::to_string(port);
-            next_steps.push_back(std::string("edit  ") + shorten_home((spec.dir / main_file).string()));
-            next_steps.push_back(std::string("run   python3 ") + shorten_home((spec.dir / main_file).string()) + "   (after mktsim up)");
-            next_steps.push_back("watch mktsim tui");
+                      << "market.py (yours)  mktsim/ (client library)  README.md" << ui.reset() << "\n";
+            own_summary = name + " (python population)";
+            next_steps.push_back("edit  " + shorten_home((spec.dir / "market.py").string()));
+            next_steps.push_back("run   python3 " + shorten_home((spec.dir / "market.py").string()) + " [--workers 4]   (after mktsim up)");
         } else if (how == 1) {
             std::string name;
-            if (!ui.ask("Adapter name", "letters, digits and _; also the library name", "my_ingress", name))
+            if (!ui.ask("Model name", "letters, digits and _; also the library name", "my_flow", name))
                 return false;
             std::string dir;
             if (!ui.ask("Project directory", "created if missing", "./" + name, dir))
                 return false;
-            long port = 30030;
-            if (!ui.ask_int("Port it listens on", "one TCP connection = one exchange session", 30030, 1, 65535, port))
+            long sessions = 8, rate = 5000;
+            if (!ui.ask_int("Sessions", "simulated participants the model submits on", 8, 1, 256, sessions))
                 return false;
-
+            if (!ui.ask_int("Target rate", "orders per second across all sessions", 5000, 1, 1000000, rate))
+                return false;
             scaffold::Spec spec;
             spec.name = name;
             spec.dir = fs::weakly_canonical(fs::path(expand_home(dir)), ec);
             if (ec) spec.dir = fs::absolute(fs::path(expand_home(dir)));
             spec.repo = root;
-            spec.port = static_cast<int>(port);
-
-            std::string err = scaffold::generate(spec);
-            if (!err.empty()) {
-                ui.warn(err);
-                return false;
-            }
+            spec.sessions = static_cast<int>(sessions);
+            spec.rate = static_cast<int>(rate);
+            std::string err = scaffold::generate_flow_model(spec);
+            if (!err.empty()) { ui.warn(err); return false; }
             ui.note("created " + shorten_home(spec.dir.string()) + "/");
             std::cout << ui.cyan() << "│" << ui.reset() << "    " << ui.dim()
-                      << "src/protocol.hpp (yours)  src/adapter.cpp  CMakeLists.txt  README.md"
-                      << ui.reset() << "\n";
-
+                      << "src/model.hpp (yours)  src/flow_adapter.cpp  CMakeLists.txt  README.md" << ui.reset() << "\n";
             bool build_now = true;
             if (!ui.ask_yes("Build it now", "cmake configure + build into " + name + "/build", true, build_now))
                 return false;
@@ -756,24 +995,18 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             if (build_now) {
                 std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "building…" << ui.reset() << "\n";
                 built = scaffold::build(spec) == 0;
-                if (built)
-                    ui.note("built " + shorten_home(scaffold::library_path(spec)));
-                else
-                    ui.warn("build failed; fix it and run: cmake -S " + shorten_home(spec.dir.string()) +
-                            " -B " + shorten_home((spec.dir / "build").string()) + " && cmake --build " +
-                            shorten_home((spec.dir / "build").string()));
+                if (built) ui.note("built " + shorten_home(scaffold::library_path(spec)));
+                else ui.warn("build failed; fix it and run: cmake -S " + shorten_home(spec.dir.string()) +
+                             " -B " + shorten_home((spec.dir / "build").string()) + " && cmake --build " +
+                             shorten_home((spec.dir / "build").string()));
             }
             if (!built)
-                g_start_warning = "the adapter library is not built yet, so the exchange would fail to load it";
+                g_start_warning = "the flow model is not built yet, so the exchange would fail to load it";
             ingress.push_back({{"type", "plugin"}, {"path", scaffold::library_path(spec)},
-                               {"config", {{"port", port}, {"bind", "0.0.0.0"}}}});
-            own_summary = name + ":" + std::to_string(port);
-            next_steps.push_back("edit  " + shorten_home((spec.dir / "src" / "protocol.hpp").string()));
-            if (!built)
-                next_steps.push_back("build  cmake -S " + shorten_home(spec.dir.string()) + " -B " +
-                                     shorten_home((spec.dir / "build").string()) + " && cmake --build " +
-                                     shorten_home((spec.dir / "build").string()));
-            next_steps.push_back("try   nc localhost " + std::to_string(port) + "   then  NEW c1 AAPL B 100 10000");
+                               {"config", {{"sessions", sessions}, {"rate", rate}, {"seed", 1}}}});
+            own_summary = name + " (C++ flow model, " + std::to_string(rate) + "/s)";
+            next_steps.push_back("edit  " + shorten_home((spec.dir / "src" / "model.hpp").string()));
+            next_steps.push_back("then  cmake --build " + shorten_home((spec.dir / "build").string()) + " && mktsim down && mktsim up");
         } else {
             std::string path;
             if (!ui.ask("Shared library", "path to the .dylib/.so, or without extension", "", path))
@@ -782,12 +1015,10 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             fs::path pp = path;
             if (!fs::exists(pp, ec) && !root.empty() && fs::exists(root / pp, ec))
                 pp = root / pp;
-            if (fs::exists(pp, ec))
-                pp = fs::weakly_canonical(pp, ec);
-            else
-                ui.warn(path + " does not exist yet; the exchange will fail to start until it does");
-            long port = 30030;
-            if (!ui.ask_int("Port for it", "0 if it takes none", 30030, 0, 65535, port))
+            if (fs::exists(pp, ec)) pp = fs::weakly_canonical(pp, ec);
+            else ui.warn(path + " does not exist yet; the exchange will fail to start until it does");
+            long port = 0;
+            if (!ui.ask_int("Port for it", "0 if it takes none", 0, 0, 65535, port))
                 return false;
             json pc = json::object();
             if (port) { pc["port"] = port; pc["bind"] = "0.0.0.0"; }
@@ -795,7 +1026,53 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             own_summary = pp.filename().string() + (port ? ":" + std::to_string(port) : "");
         }
     }
+
+    /* ---- trading agents ---- */
+    ui.section("3 · Trading agents");
+    {
+        bool want_trader = false;
+        if (!ui.ask_yes("Scaffold a Python trading strategy", "a strategy.py that trades against this market, public view only", true, want_trader))
+            return false;
+        if (want_trader) {
+            std::string name;
+            if (!ui.ask("Project name", "letters, digits and _", "my_strategy", name))
+                return false;
+            std::string dir;
+            if (!ui.ask("Project directory", "created if missing", "./" + name, dir))
+                return false;
+            scaffold::Spec spec;
+            spec.name = name;
+            spec.dir = fs::weakly_canonical(fs::path(expand_home(dir)), ec);
+            if (ec) spec.dir = fs::absolute(fs::path(expand_home(dir)));
+            spec.repo = root;
+            spec.port = static_cast<int>(jsonl_port);
+            spec.market = false;
+            spec.feed_group = c["feed"].value("group", "239.1.1.1");
+            spec.feed_port = c["feed"].value("port", 30001);
+            spec.snapshot_port = c["feed"].value("snapshot_port", 30003);
+            std::string err = scaffold::generate_python(spec);
+            if (!err.empty()) { ui.warn(err); return false; }
+            need_jsonl = true;
+            ui.note("created " + shorten_home(spec.dir.string()) + "/");
+            std::cout << ui.cyan() << "│" << ui.reset() << "    " << ui.dim()
+                      << "strategy.py (yours)  mktsim/ (client library)  README.md" << ui.reset() << "\n";
+            next_steps.push_back("trade python3 " + shorten_home((spec.dir / "strategy.py").string()) + "   (after mktsim up)");
+        }
+    }
+
+    if (need_jsonl) {
+        json jl = jsonl_tpl;
+        jl["config"]["port"] = jsonl_port;
+        ingress.push_back(jl);
+    }
     c["ingress"] = ingress;
+    if (!scenario.empty()) {
+        c["mktsim"] = {{"market", {{"scenario", scenario}, {"workers", scenario_workers}}}};
+        next_steps.push_back("market python scenario '" + scenario + "' starts with mktsim up; mktsim market status / logs");
+    } else {
+        c.erase("mktsim");
+    }
+    next_steps.push_back("watch mktsim tui");
 
     /* ================= SAVE ================= */
     ui.section("Save");
@@ -819,7 +1096,14 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     for (auto &e : ingress) {
         std::string t = e.value("type", "?");
         if (t == "flowgen") continue;
-        if (t == "plugin") { ing << (ing.tellp() > 0 ? " · " : "") << own_summary; continue; }
+        if (t == "plugin") {
+            if (e.value("path", "").find("jsonl") != std::string::npos) {
+                ing << (ing.tellp() > 0 ? " · " : "") << "jsonl:" << e["config"].value("port", 0);
+            } else if (!own_summary.empty()) {
+                ing << (ing.tellp() > 0 ? " · " : "") << own_summary;
+            }
+            continue;
+        }
         ing << (ing.tellp() > 0 ? " · " : "") << t;
         if (e.contains("port")) ing << ":" << e["port"].get<long>();
     }
@@ -834,7 +1118,8 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
     row("symbols", std::to_string(syms.size()));
     row("shards", std::to_string(shards));
     row("feed", c["feed"]["group"].get<std::string>() + ":" + std::to_string(c["feed"]["port"].get<long>()));
-    row("demo flow", flow == "off" ? "off" : (flow == "calm" ? "calm" : flow == "busy" ? "normal" : "heavy"));
+    row("flow", !scenario.empty() ? scenario + " (python scenario)" :
+                flow == "off" ? "none" : (flow == "calm" ? "calm" : flow == "busy" ? "normal" : "heavy"));
     row("ingress", ing.str().empty() ? "none" : ing.str());
     row("saved", shorten_home(sp.string()));
     std::cout << ui.cyan() << "│" << ui.reset() << "  " << ui.dim() << "└" << ui.reset() << "\n";
@@ -942,6 +1227,8 @@ int cmd_up(int argc, char **argv) {
 /* ---------------- down ---------------- */
 
 int cmd_down(int, char **) {
+    if (pid_alive(read_pid_from(market_pid_file())))
+        market_stop();
     pid_t pid = read_pid();
     if (!pid_alive(pid)) {
         std::cout << "exchange is not running\n";
@@ -1047,6 +1334,14 @@ int cmd_status(int, char **) {
     std::string last = read_last_line(log_file());
     if (!last.empty())
         std::cout << "  last:   " << last << "\n";
+    if (pid_alive(read_pid_from(market_pid_file()))) {
+        std::string scenario;
+        std::ifstream mf(market_meta_file());
+        for (std::string line; std::getline(mf, line);)
+            if (line.rfind("scenario=", 0) == 0) scenario = line.substr(9);
+        std::cout << "market: running (pid " << read_pid_from(market_pid_file()) << ")  scenario " << scenario
+                  << "  · mktsim market status / logs\n";
+    }
     return 0;
 }
 

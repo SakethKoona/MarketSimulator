@@ -734,24 +734,24 @@ if __name__ == "__main__":
 
 const char *kPyMarket = R"PY("""{{NAME}}: a simulated market. Your agents ARE the order flow.
 
-Run with the exchange up (demo flow off):   python3 market.py
+Run with the exchange up (demo flow off):   python3 market.py [--workers 4]
 Watch it:                                   mktsim tui
+Let traders attach:                         they connect to the same exchange
 
-Build a population from mktsim.agents (or your own Strategy subclasses),
-give the World a fundamental value process and scripted shocks, and run.
-Every agent is its own exchange session; the public feed is decoded into
-books they can read via self.world / self.mid(sym).
+A Scenario is a seeded, reproducible market: the population, how the
+latent fundamental moves, and what shocks happen when. Start from one of
+the predefined ones (python3 -m mktsim.market list) or build your own below.
+Every agent is its own exchange session with the private World
+(self.world.fundamental) plus the public books (self.mid(sym)).
 """
-import random
+import sys
 
-from mktsim import Feed, Fundamental, Strategy, World, agents, run_many
-
-SYMBOLS = ["AAPL", "MSFT", "GOOG"]
-SEED = 7
+from mktsim import Feed, Scenario, Strategy, agents
+from mktsim.sim import SCENARIOS
 
 
 class Arbitrageur(Strategy):
-    """Example of your own agent: fades large deviations from the fundamental."""
+    """Your own agent: fades large deviations from the fundamental."""
     tick_ms = 200
 
     def __init__(self, sym, edge=8, clip=30):
@@ -767,27 +767,326 @@ class Arbitrageur(Strategy):
             self.ex.buy(self.sym, self.clip, m + 1, tif="IOC")
 
 
-def main():
-    rng = random.Random(SEED)
-    fundamental = Fundamental({s: 10000 for s in SYMBOLS}, vol=0.8, revert=0.01, rng=rng)
-    feed = Feed(group="{{GROUP}}", port={{FEEDPORT}}, snapshot_port={{SNAPPORT}})
-    world = World(SYMBOLS, feed=feed, fundamental=fundamental, seed=SEED)
-
-    # the population: per symbol, Hawkes noise traders, a market maker, momentum and informed flow
-    pop = agents.population(SYMBOLS, noise=8, makers=1, momentum=1, informed=1, seed=SEED,
+def population(symbols, seed):
+    """The agents. Mix the library's with your own."""
+    pop = agents.population(symbols, noise=8, makers=1, momentum=1, informed=1, seed=seed,
                             noise_rate=1.0, noise_cluster=0.5)
-    pop += [Arbitrageur(s) for s in SYMBOLS]
+    pop += [Arbitrageur(s) for s in symbols]
+    return pop
 
-    # scripted events
-    world.shock(30.0, "AAPL", +60)       # news at t=30s
-    world.at(60.0, lambda w: print("t=60: half the noise traders go quiet"))
 
-    run_many(pop, port={{PORT}}, feed=feed, world=world, report_every=5)
-
+SCENARIO = Scenario(
+    name="{{NAME}}",
+    description="my market",
+    population=population,
+    fundamental={"vol": 0.8, "revert": 0.01},        # Fundamental() kwargs: vol, drift, revert
+    shocks=[(30.0, "AAPL", +60)],                      # (seconds, symbol, delta)
+    symbols=["AAPL", "MSFT", "GOOG"],
+    seed=7,
+)
 
 if __name__ == "__main__":
-    main()
+    workers = int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else 1
+    feed = Feed(group="{{GROUP}}", port={{FEEDPORT}}, snapshot_port={{SNAPPORT}})
+    SCENARIO.run(port={{PORT}}, feed=feed, workers=workers, report_every=5)
 )PY";
+
+/* ---------------- C++ flow-model plugin: in-process load generation ---------------- */
+
+const char *kFlowCMake = R"CMAKE(cmake_minimum_required(VERSION 3.16)
+project({{NAME}} CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+find_package(Threads REQUIRED)
+add_library({{NAME}} MODULE src/flow_adapter.cpp)
+target_include_directories({{NAME}} PRIVATE include src)
+target_link_libraries({{NAME}} Threads::Threads)
+target_compile_options({{NAME}} PRIVATE -Wall -Wextra -O2)
+set_target_properties({{NAME}} PROPERTIES PREFIX "" LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+if(APPLE)
+  set_target_properties({{NAME}} PROPERTIES SUFFIX ".dylib")
+endif()
+)CMAKE";
+
+const char *kFlowReadme = R"MD(# {{NAME}}
+
+An in-process order-flow model for the MarketSimulator exchange, generated
+by `mktsim up`. The exchange loads it as an ingress plugin and runs it on
+its own thread with direct access to the matching engine's order entry,
+so it can drive tens of thousands of orders a second with no sockets in
+the way. Use it when a Python population is not fast enough.
+
+## Build and run
+
+```
+cmake -S . -B build && cmake --build build
+mktsim down && mktsim up        # the config already points at build/{{NAME}}
+```
+
+## Your model: `src/model.hpp`
+
+`src/flow_adapter.cpp` (generated, leave it) opens `sessions` exchange
+sessions, paces calls to your model at `rate` orders per second, submits
+what it returns, and delivers every report back to it. You write:
+
+- `Model(const Context&)`: symbols, session count, seed, config JSON.
+- `bool next(uint64_t now_ns, Order &out)`: fill in `out` (session, kind
+  NEW/CANCEL/MODIFY, symbol, side, type, tif, qty, price or order_id) and
+  return true to submit it; false to skip this slot.
+- `void on_report(int session, const mktsim_report &r)`: acks, fills,
+  cancels for that session's orders. Track what you need.
+- `double rate() const`: target orders per second (the adapter paces to it).
+
+The default model is a Hawkes-style flow: each symbol's mid follows a
+random walk, arrivals cluster after recent activity, limits scatter
+around the mid, some orders cross, resting orders are cancelled after a
+while. Replace it with your own process.
+
+Config keys from the exchange config's ingress entry: `sessions` (default
+{{SESSIONS}}), `rate` (default {{RATE}}), `seed`, plus anything you read in Model().
+)MD";
+
+const char *kFlowModel = R"CPP(// {{NAME}}: YOUR order-flow model. Edit this file; leave flow_adapter.cpp alone.
+//
+// The adapter calls next() at `rate()` orders per second from one thread and
+// hands every report to on_report(). Keep state on the Model.
+#pragma once
+#include "ingress/api.h"
+#include <cmath>
+#include <cstdint>
+#include <random>
+#include <string>
+#include <vector>
+
+struct Context {
+    std::vector<mktsim_symbol_info> symbols; // ticker + symbol_id
+    int sessions;                            // sessions the adapter opened
+    std::uint64_t seed;
+    std::string config_json;                 // this plugin's config object
+};
+
+struct Order {
+    int session = 0;
+    std::uint8_t kind = MKTSIM_REQ_NEW;       // MKTSIM_REQ_NEW / CANCEL / MODIFY
+    std::uint32_t symbol_id = 0;
+    std::uint8_t side = MKTSIM_BUY;
+    std::uint8_t ord_type = MKTSIM_LIMIT;
+    std::uint8_t tif = MKTSIM_GTC;
+    std::uint32_t qty = 0;
+    std::uint64_t price = 0;
+    std::uint64_t order_id = 0;               // CANCEL / MODIFY
+};
+
+class Model {
+  public:
+    explicit Model(const Context &ctx)
+        : ctx_(ctx), rng_(ctx.seed ? ctx.seed : 1), mid_(ctx.symbols.size(), 10000.0),
+          excess_(0.0), last_ns_(0) {
+        live_.resize(ctx.sessions);
+    }
+
+    double rate() const { return {{RATE}}.0; }   // orders per second, all sessions
+
+    // One decision. Return true and fill `out` to submit an order.
+    bool next(std::uint64_t now_ns, Order &out) {
+        if (ctx_.symbols.empty())
+            return false;
+        // Self-excitation: recent activity raises the chance this slot is used
+        double dt = last_ns_ ? (now_ns - last_ns_) / 1e9 : 1.0;
+        last_ns_ = now_ns;
+        excess_ *= std::exp(-2.0 * dt);
+        double p_act = std::min(1.0, 0.6 + excess_);
+        if (uni_(rng_) > p_act)
+            return false;
+        excess_ = std::min(excess_ + 0.05, 0.4);
+
+        int s = static_cast<int>(rng_() % ctx_.symbols.size());
+        std::uint32_t sym = ctx_.symbols[s].symbol_id;
+        mid_[s] += gauss_(rng_) * 0.3;               // random-walk fair value
+        int session = static_cast<int>(rng_() % ctx_.sessions);
+        auto &mine = live_[session];
+
+        out = Order{};
+        out.session = session;
+        out.symbol_id = sym;
+        double u = uni_(rng_);
+        if (u < 0.25 && !mine.empty()) {             // cancel something resting
+            std::size_t k = rng_() % mine.size();
+            out.kind = MKTSIM_REQ_CANCEL;
+            out.order_id = mine[k];
+            mine[k] = mine.back();
+            mine.pop_back();
+            return true;
+        }
+        out.kind = MKTSIM_REQ_NEW;
+        out.side = (rng_() & 1) ? MKTSIM_BUY : MKTSIM_SELL;
+        out.qty = 1 + static_cast<std::uint32_t>(rng_() % 200);
+        if (u < 0.40) {                              // aggressive: cross the spread
+            out.tif = MKTSIM_IOC;
+            out.price = static_cast<std::uint64_t>(mid_[s] + (out.side == MKTSIM_BUY ? 20 : -20));
+        } else {                                     // passive: rest near the mid
+            double off = 1 + rng_() % 15;
+            out.price = static_cast<std::uint64_t>(mid_[s] + (out.side == MKTSIM_BUY ? -off : off));
+        }
+        if (out.price < 1) out.price = 1;
+        return true;
+    }
+
+    void on_report(int session, const mktsim_report &r) {
+        auto &mine = live_[session];
+        if (r.kind == MKTSIM_RPT_ACCEPTED && r.leaves_qty > 0 && mine.size() < 64)
+            mine.push_back(r.order_id);
+        else if ((r.kind == MKTSIM_RPT_EXECUTION && r.leaves_qty == 0) || r.kind == MKTSIM_RPT_CANCELLED) {
+            for (std::size_t i = 0; i < mine.size(); i++)
+                if (mine[i] == r.order_id) { mine[i] = mine.back(); mine.pop_back(); break; }
+        }
+    }
+
+  private:
+    Context ctx_;
+    std::mt19937_64 rng_;
+    std::uniform_real_distribution<double> uni_{0.0, 1.0};
+    std::normal_distribution<double> gauss_{0.0, 1.0};
+    std::vector<double> mid_;
+    double excess_;
+    std::uint64_t last_ns_;
+    std::vector<std::vector<std::uint64_t>> live_;   // resting order ids per session
+};
+)CPP";
+
+const char *kFlowAdapter = R"CPP(// {{NAME}}: generated flow adapter. You should not need to edit this file.
+// Opens N sessions, paces Model::next() at Model::rate(), submits, polls.
+#include "ingress/api.h"
+#include "model.hpp"
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace {
+
+std::string cfg_str(const std::string &obj, const char *key) {
+    std::string k = std::string("\"") + key + "\"";
+    std::size_t p = obj.find(k);
+    if (p == std::string::npos) return "";
+    p = obj.find(':', p + k.size());
+    if (p == std::string::npos) return "";
+    ++p;
+    while (p < obj.size() && (obj[p] == ' ' || obj[p] == '\t')) ++p;
+    if (p >= obj.size()) return "";
+    if (obj[p] == '"') {
+        std::size_t e = obj.find('"', p + 1);
+        return e == std::string::npos ? "" : obj.substr(p + 1, e - p - 1);
+    }
+    std::size_t e = p;
+    while (e < obj.size() && (std::isalnum(static_cast<unsigned char>(obj[e])) || obj[e] == '.')) ++e;
+    return obj.substr(p, e - p);
+}
+
+struct Adapter {
+    const mktsim_exchange_api *api;
+    mktsim_exchange *ex;
+    Context ctx;
+    double rate_override = 0;
+    std::vector<mktsim_session *> sessions;
+    std::unique_ptr<Model> model;
+    std::thread thread;
+    std::atomic<bool> running{false};
+    std::uint64_t submitted = 0, busy = 0;
+
+    static void on_report(void *user, const mktsim_report *r) {
+        auto *pair = static_cast<std::pair<Adapter *, int> *>(user);
+        pair->first->model->on_report(pair->second, *r);
+    }
+
+    void run() {
+        using clock = std::chrono::steady_clock;
+        double rate = rate_override > 0 ? rate_override : model->rate();
+        const double ns_per = rate > 0 ? 1e9 / rate : 1e6;
+        auto start = clock::now();
+        std::uint64_t slot = 0;
+        std::vector<std::pair<Adapter *, int>> users;
+        for (int i = 0; i < ctx.sessions; i++) users.emplace_back(this, i);
+        while (running.load(std::memory_order_relaxed)) {
+            auto now = clock::now();
+            std::uint64_t elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count();
+            std::uint64_t due = static_cast<std::uint64_t>(elapsed / ns_per);
+            int n = 0;
+            while (slot < due && n < 256 && running.load(std::memory_order_relaxed)) {
+                Order o;
+                if (model->next(api->now_ns(), o)) {
+                    mktsim_order_req req{};
+                    req.request_id = ++submitted;
+                    req.kind = o.kind; req.side = o.side; req.ord_type = o.ord_type; req.tif = o.tif;
+                    req.symbol_id = o.symbol_id; req.qty = o.qty; req.price = o.price; req.order_id = o.order_id;
+                    int s = o.session < 0 || o.session >= ctx.sessions ? 0 : o.session;
+                    if (api->submit(sessions[s], &req) == MKTSIM_EBUSY) busy++;
+                }
+                slot++; n++;
+            }
+            for (int i = 0; i < ctx.sessions; i++)
+                api->poll(sessions[i], &Adapter::on_report, &users[i], 1024);
+            if (slot >= due)
+                std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+    }
+};
+
+} // namespace
+
+extern "C" {
+
+int mktsim_ingress_init(const mktsim_exchange_api *api, mktsim_exchange *ex, const char *config_json, void **state) {
+    if (api->version != MKTSIM_INGRESS_API_VERSION) return 1;
+    auto *a = new Adapter{};
+    a->api = api; a->ex = ex;
+    std::string cfg = config_json ? config_json : "{}";
+    a->ctx.config_json = cfg;
+    std::string v;
+    a->ctx.sessions = (v = cfg_str(cfg, "sessions")).empty() ? {{SESSIONS}} : std::atoi(v.c_str());
+    if (a->ctx.sessions < 1) a->ctx.sessions = 1;
+    a->ctx.seed = (v = cfg_str(cfg, "seed")).empty() ? 1 : std::strtoull(v.c_str(), nullptr, 10);
+    if (!(v = cfg_str(cfg, "rate")).empty()) a->rate_override = std::atof(v.c_str());
+    mktsim_symbol_info syms[4096];
+    std::size_t n = api->symbols(ex, syms, 4096);
+    a->ctx.symbols.assign(syms, syms + n);
+    *state = a;
+    return 0;
+}
+
+int mktsim_ingress_start(void *state) {
+    auto *a = static_cast<Adapter *>(state);
+    for (int i = 0; i < a->ctx.sessions; i++)
+        a->sessions.push_back(a->api->open_session(a->ex, "{{NAME}}"));
+    a->model = std::make_unique<Model>(a->ctx);
+    a->running.store(true);
+    a->thread = std::thread([a] { a->run(); });
+    double rate = a->rate_override > 0 ? a->rate_override : a->model->rate();
+    a->api->log(a->ex, "{{NAME}}", (std::to_string(a->ctx.sessions) + " session(s), " +
+                                   std::to_string(static_cast<long>(rate)) + " orders/s target, " +
+                                   std::to_string(a->ctx.symbols.size()) + " symbols").c_str());
+    return 0;
+}
+
+void mktsim_ingress_stop(void *state) {
+    auto *a = static_cast<Adapter *>(state);
+    if (!a->running.exchange(false)) return;
+    if (a->thread.joinable()) a->thread.join();
+    for (auto *s : a->sessions) a->api->close_session(s);
+    a->sessions.clear();
+}
+
+void mktsim_ingress_destroy(void *state) { delete static_cast<Adapter *>(state); }
+
+} // extern "C"
+)CPP";
 
 const char *kPyGitignore = "__pycache__/\nmktsim/__pycache__/\n";
 
@@ -885,6 +1184,37 @@ std::string generate_python(const Spec &spec) {
     if (!write_file(spec.dir / "README.md", sub(kPyReadme), err)) return err;
     if (!write_file(spec.dir / ".gitignore", kPyGitignore, err)) return err;
     return copy_tree(pkg, spec.dir / "mktsim");
+}
+
+std::string generate_flow_model(const Spec &spec) {
+    std::error_code ec;
+    if (spec.name.empty())
+        return "project name is empty";
+    for (char c : spec.name)
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+            return "project name must be letters, digits and _ only";
+    if (fs::exists(spec.dir / "src" / "model.hpp", ec))
+        return spec.dir.string() + " already contains a flow model";
+    fs::path api = spec.repo / "gateway" / "include" / "ingress" / "api.h";
+    if (!fs::is_regular_file(api, ec))
+        return "cannot find the ingress API header at " + api.string();
+    auto sub = [&](const char *tpl) {
+        std::string t = tpl;
+        t = replace_all(t, "{{NAME}}", spec.name);
+        t = replace_all(t, "{{SESSIONS}}", std::to_string(spec.sessions));
+        t = replace_all(t, "{{RATE}}", std::to_string(spec.rate));
+        return t;
+    };
+    std::string err;
+    if (!write_file(spec.dir / "CMakeLists.txt", sub(kFlowCMake), err)) return err;
+    if (!write_file(spec.dir / "README.md", sub(kFlowReadme), err)) return err;
+    if (!write_file(spec.dir / "src" / "model.hpp", sub(kFlowModel), err)) return err;
+    if (!write_file(spec.dir / "src" / "flow_adapter.cpp", sub(kFlowAdapter), err)) return err;
+    if (!write_file(spec.dir / ".gitignore", kGitignore, err)) return err;
+    fs::create_directories(spec.dir / "include" / "ingress", ec);
+    fs::copy_file(api, spec.dir / "include" / "ingress" / "api.h", fs::copy_options::overwrite_existing, ec);
+    if (ec) return "cannot copy api.h: " + ec.message();
+    return "";
 }
 
 int build(const Spec &spec) {

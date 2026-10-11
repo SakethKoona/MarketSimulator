@@ -28,5 +28,7 @@ int cmd_up(int argc, char **argv);     // mktsim up [config] [--flow ...] [-i|-y
 int cmd_down(int argc, char **argv);   // mktsim down
 int cmd_status(int argc, char **argv); // mktsim status
 int cmd_logs(int argc, char **argv);   // mktsim logs [-f] [-n N]
+int cmd_market(int argc, char **argv); // mktsim market list|up|down|status|logs
+int cmd_new(int argc, char **argv);    // mktsim new strategy|market|flow|adapter NAME [DIR]
 
 } // namespace service

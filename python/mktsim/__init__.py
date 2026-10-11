@@ -1,18 +1,25 @@
 """mktsim: Python client for the MarketSimulator exchange.
 
-Trade against the simulated market, or be the market: run one strategy or a
-whole population of agents, each on its own exchange session, with the
-public feed decoded into books they can read.
+Two sides of one library:
 
-    from mktsim import Exchange, Strategy, run, run_many, agents, World, Feed
+  trade  - a Strategy and the public Market it sees. Trade against whatever
+           market is running (the built-in demo flow or a researcher's
+           scenario). `from mktsim import Strategy, run`.
+  sim    - the simulation: World (private state: Fundamental, shocks),
+           agents, and seeded Scenarios that run as the market.
+           `from mktsim.sim import SCENARIOS, Scenario, World`;
+           `python3 -m mktsim.market run hawkes`.
+
+Both use the same Exchange session and the same Feed decoder.
 """
 from .client import Exchange, Order, Report
 from .feed import Book, Books, Feed, Trade
 from .hawkes import Hawkes, Poisson
 from .runner import run, run_many
-from .strategy import Strategy
-from .world import Fundamental, World
-from . import agents
+from .sim import SCENARIOS, Fundamental, Scenario, World
+from .trade import Market, Strategy
+from . import agents, sim, trade
 
 __all__ = ["Exchange", "Order", "Report", "Book", "Books", "Feed", "Trade", "Hawkes", "Poisson",
-           "run", "run_many", "Strategy", "Fundamental", "World", "agents"]
+           "run", "run_many", "Strategy", "Market", "Fundamental", "World", "Scenario", "SCENARIOS",
+           "agents", "sim", "trade"]

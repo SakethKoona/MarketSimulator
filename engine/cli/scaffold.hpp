@@ -20,6 +20,9 @@ struct Spec {
     std::string feed_group = "239.1.1.1";
     int feed_port = 30001;
     int snapshot_port = 30003;
+    // C++ flow-model plugin
+    int sessions = 8;
+    int rate = 5000;              // orders per second target
 };
 
 // Writes the C++ adapter project. Returns "" on success or an error message.
@@ -28,6 +31,11 @@ std::string generate(const Spec &spec);
 // Writes a Python project: strategy.py (trader) or market.py (population),
 // plus a copy of <repo>/python/mktsim. No build step.
 std::string generate_python(const Spec &spec);
+
+// Writes a C++ flow-model plugin project: src/model.hpp (the user's order
+// process) + generated src/flow_adapter.cpp that paces and submits it
+// in-process. For load the Python path cannot reach.
+std::string generate_flow_model(const Spec &spec);
 
 // Config entry path for the built library (no extension; the exchange adds
 // the platform suffix).

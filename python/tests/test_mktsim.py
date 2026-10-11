@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mktsim.client import Exchange, Report  # noqa: E402
 from mktsim.feed import MOLD_HDR, Books  # noqa: E402
 from mktsim.hawkes import Hawkes, Poisson  # noqa: E402
+from mktsim.sim import SCENARIOS, World  # noqa: E402
+from mktsim.trade import Market, Strategy  # noqa: E402
 
 
 def mold(seq, msgs, session=b"MKTSIM0001"):
@@ -162,6 +164,30 @@ class ClientTracking(unittest.TestCase):
         ex.sell("AAPL", 5)
         self.assertEqual(sent[0]["new"]["type"], "MARKET")
         self.assertEqual(sent[0]["new"]["tif"], "IOC")
+
+
+class Scenarios(unittest.TestCase):
+    def test_registry_builds_reproducibly(self):
+        for name, scn in SCENARIOS.items():
+            w1, a1 = scn.build(None, ["AAPL", "MSFT"], seed=3)
+            w2, a2 = scn.build(None, ["AAPL", "MSFT"], seed=3)
+            self.assertGreater(len(a1), 0, name)
+            self.assertEqual([a.name for a in a1], [a.name for a in a2], name)
+            self.assertEqual(w1.fundamental.value, w2.fundamental.value)
+            self.assertTrue(all(isinstance(a, Strategy) for a in a1))
+
+    def test_world_is_private_market_is_public(self):
+        w = World(["AAPL"], seed=1)
+        self.assertTrue(isinstance(w, Market))
+        self.assertTrue(hasattr(w, "fundamental"))
+        m = Market(["AAPL"])
+        self.assertFalse(hasattr(m, "fundamental"))
+        self.assertEqual(m.marks(), {"AAPL": 0})       # nothing public yet
+        self.assertEqual(w.marks(), {"AAPL": 10000})   # falls back to the fundamental
+        fired = []
+        w.at(0.0, lambda ww: fired.append(ww.fundamental["AAPL"]))
+        w._tick()
+        self.assertEqual(len(fired), 1)
 
 
 if __name__ == "__main__":

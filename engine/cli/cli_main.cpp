@@ -35,6 +35,8 @@ static int usage() {
                  "  mktsim tui [feedviz args]\n"
                  "  mktsim up [config.json] [--flow calm|busy|load|off] [-i] [-y]\n"
                  "  mktsim init                  build a config interactively\n"
+                 "  mktsim market list|up SCENARIO|down|status|logs   a Python scenario as the market\n"
+                 "  mktsim new strategy|market|flow|adapter NAME [DIR]  scaffold without questions\n"
                  "  mktsim down | status | logs [-f] [-n N]\n";
     return 2;
 }
@@ -148,6 +150,10 @@ int main(int argc, char **argv) {
         return service::cmd_up(argc, argv);
     if (mode == "init")
         return service::cmd_init(argc, argv);
+    if (mode == "market")
+        return service::cmd_market(argc, argv);
+    if (mode == "new")
+        return service::cmd_new(argc, argv);
     if (mode == "down")
         return service::cmd_down(argc, argv);
     if (mode == "status")

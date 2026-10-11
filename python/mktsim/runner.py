@@ -1,5 +1,6 @@
 """Drives one or many strategies in one process: one exchange session each,
-one select loop, a shared World, an optional feed subscription."""
+one select loop, a shared Market (or World for simulator agents), an
+optional feed subscription."""
 from __future__ import annotations
 
 import select
@@ -8,8 +9,7 @@ from typing import Callable, Iterable, Optional
 
 from .client import Exchange
 from .feed import Feed
-from .strategy import Strategy
-from .world import World
+from .trade import Market, Strategy
 
 
 class _FnStrategy(Strategy):
@@ -31,13 +31,19 @@ class _FnStrategy(Strategy):
 
 
 def run_many(strategies: Iterable[Strategy], host="127.0.0.1", port=30020,
-             feed: Optional[Feed] | bool = True, world: Optional[World] = None,
+             feed: Optional[Feed] | bool = True, world: Optional[Market] = None,
              duration: Optional[float] = None, world_tick_ms: int = 100,
              report_every: Optional[float] = 10.0,
-             on_summary: Optional[Callable[[list[Strategy], World], None]] = None) -> World:
+             on_summary: Optional[Callable[[list[Strategy], Market], None]] = None) -> Market:
     """Runs every strategy on its own exchange session until Ctrl-C or
-    `duration` seconds. `feed=True` subscribes to the public feed with
-    defaults; pass a Feed for other addresses; False for none."""
+    `duration` seconds.
+
+    feed=True subscribes to the public feed with defaults; a Feed for other
+    addresses; False for none. `world`: a Market (traders: public view only)
+    or a sim.World (simulator agents: also gets self.world). Default: a
+    public Market over the feed."""
+    from .sim import World  # noqa: WPS433  (late import avoids a cycle)
+
     strategies = list(strategies)
     if feed is True:
         feed = Feed()
@@ -47,20 +53,24 @@ def run_many(strategies: Iterable[Strategy], host="127.0.0.1", port=30020,
         except OSError as e:
             print(f"feed: not available ({e}); running without market data")
             feed = None
-    syms = sorted({getattr(s, "sym", None) for s in strategies} - {None})
+    syms = sorted({getattr(s, "sym", None) for s in strategies} - {None}) or \
+           sorted({getattr(s, "symbol", None) for s in strategies} - {None})
     if world is None:
-        world = World(syms or ["AAPL"], feed=feed)
+        world = Market(syms or ["AAPL"], feed=feed)
     elif feed and world.feed is None:
         world.feed = feed
+    private = isinstance(world, World)
 
-    # connect each strategy on its own session
     for i, s in enumerate(strategies):
         s.name = s.name or f"{type(s).__name__}{i}"
         s.ex = Exchange(host, port, s.name)
-        s.world = world
+        s.market = world             # public view (a World is also a Market)
+        if private:
+            s.world = world          # simulator agents may read the fundamental
         s.ex.connect()
     print(f"run: {len(strategies)} strateg{'y' if len(strategies) == 1 else 'ies'} on {host}:{port}"
-          + (f", feed {feed.group}:{feed.port}" if feed else ", no feed"))
+          + (f", feed {feed.group}:{feed.port}" if feed else ", no feed")
+          + (" (simulation world)" if private else " (public market view)"))
 
     if feed:
         def _on_trade(tr):
