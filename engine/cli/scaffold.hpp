@@ -15,13 +15,18 @@ struct Spec {
     std::filesystem::path dir;    // project directory to create
     std::filesystem::path repo;   // MarketSimulator checkout (for api.h)
     int port = 30030;             // default TCP port the adapter listens on
+    // Python projects
+    bool market = false;          // false: trader (strategy.py); true: population (market.py)
+    std::string feed_group = "239.1.1.1";
+    int feed_port = 30001;
+    int snapshot_port = 30003;
 };
 
 // Writes the C++ adapter project. Returns "" on success or an error message.
 std::string generate(const Spec &spec);
 
-// Writes a Python project: strategy.py (the user's file) + mktsim.py (a
-// client for the exchange's JSON-lines adapter on spec.port). No build step.
+// Writes a Python project: strategy.py (trader) or market.py (population),
+// plus a copy of <repo>/python/mktsim. No build step.
 std::string generate_python(const Spec &spec);
 
 // Config entry path for the built library (no extension; the exchange adds

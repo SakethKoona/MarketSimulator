@@ -675,8 +675,17 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             return false;
 
         if (how == 0) {
+            std::size_t kind = 0;
+            if (!ui.select("What are you building", "",
+                           {{"a trading strategy", "trade against the simulated market; sees the public book via the feed"},
+                            {"a simulated market", "a population of agents IS the order flow: Hawkes noise, makers, informed; shocks"}},
+                           want_demo ? 0 : 1, kind))
+                return false;
+            bool market = (kind == 1);
+            if (market && want_demo)
+                ui.warn("you chose demo flow too; the demo participants will trade alongside your agents");
             std::string name;
-            if (!ui.ask("Project name", "letters, digits and _", "my_flow", name))
+            if (!ui.ask("Project name", "letters, digits and _", market ? "my_market" : "my_strategy", name))
                 return false;
             std::string dir;
             if (!ui.ask("Project directory", "created if missing", "./" + name, dir))
@@ -691,21 +700,26 @@ static bool wizard(json &out_cfg, fs::path &out_path, std::string &out_flow) {
             if (ec) spec.dir = fs::absolute(fs::path(expand_home(dir)));
             spec.repo = root;
             spec.port = static_cast<int>(port);
+            spec.market = market;
+            spec.feed_group = c["feed"].value("group", "239.1.1.1");
+            spec.feed_port = c["feed"].value("port", 30001);
+            spec.snapshot_port = c["feed"].value("snapshot_port", 30003);
             std::string err = scaffold::generate_python(spec);
             if (!err.empty()) {
                 ui.warn(err);
                 return false;
             }
+            const char *main_file = market ? "market.py" : "strategy.py";
             ui.note("created " + shorten_home(spec.dir.string()) + "/");
             std::cout << ui.cyan() << "│" << ui.reset() << "    " << ui.dim()
-                      << "strategy.py (yours)  mktsim.py (client)  README.md" << ui.reset() << "\n";
+                      << main_file << " (yours)  mktsim/ (client library)  README.md" << ui.reset() << "\n";
 
             json jl = jsonl_tpl;
             jl["config"]["port"] = port;
             ingress.push_back(jl);
             own_summary = name + " (python) -> jsonl:" + std::to_string(port);
-            next_steps.push_back("edit  " + shorten_home((spec.dir / "strategy.py").string()));
-            next_steps.push_back("run   python3 " + shorten_home((spec.dir / "strategy.py").string()) + "   (after mktsim up)");
+            next_steps.push_back(std::string("edit  ") + shorten_home((spec.dir / main_file).string()));
+            next_steps.push_back(std::string("run   python3 ") + shorten_home((spec.dir / main_file).string()) + "   (after mktsim up)");
             next_steps.push_back("watch mktsim tui");
         } else if (how == 1) {
             std::string name;

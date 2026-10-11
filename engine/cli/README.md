@@ -99,22 +99,24 @@ market data multicast group.
   profile, plus BOE order entry so `mktsim connect` and flowgen work.
 - *your own ingress*: your code places the orders. Pick a language:
 
-  **Python** (the default). One file to edit, no build step:
+  **Python** (the default). One file to edit, no build step. The wizard asks
+  what you are building:
 
-  ```
-  my_flow/
-    strategy.py   YOURS: class MyStrategy(Strategy) with on_start / on_report / on_tick
-    mktsim.py     generated client for the exchange's JSON-lines order entry
-    README.md
-  ```
+  - *a trading strategy*: `strategy.py` with `class MyStrategy(Strategy)`.
+    Trade against the simulated market; `self.mid(sym)` and
+    `self.world.book(sym)` give you the public book from the feed.
+  - *a simulated market*: `market.py`. Your agents are the order flow:
+    `agents.population(symbols, noise=, makers=, momentum=, informed=)` builds
+    Hawkes noise traders, inventory-leaning market makers, momentum takers
+    and informed traders around a `Fundamental` value process; add your own
+    `Strategy` subclasses; script shocks with `world.shock(t, sym, delta)`;
+    `run_many(pop)` runs them all in one process, one exchange session each.
 
-  Your state lives on `self`; `self.ex` is the exchange: `buy`, `sell`,
-  `cancel`, `modify`, `cancel_all`, `orders(sym, side)`, `has_side`.
-  `on_report` gets every ack, fill, cancel and reject on your orders;
-  `on_tick` runs every 100 ms. The wizard enables the exchange's JSON-lines
-  adapter on the port you choose. Run with `python3 my_flow/strategy.py`
-  once the exchange is up; the example is a small market maker that leans
-  its quotes against its inventory and prints its fills.
+  Both projects get a copy of the client library (`python/mktsim` in this
+  repo): `Exchange` (buy, sell, cancel, modify, position, pnl), `Feed`
+  (multicast subscriber with snapshot bootstrap and L3 books), `World`
+  (clock, books, fundamental, scripted events), `Hawkes`, `agents`,
+  `run` / `run_many`. Offline tests: `make py-test`.
 
   **C++ adapter**, for a custom wire protocol (FIX, your binary format):
   a plugin project the exchange loads in-process. The TCP listening,

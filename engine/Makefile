@@ -150,6 +150,10 @@ uninstall:
 	@rm -f $(INSTALL_DIR)/mktsim
 	@echo "Removed $(INSTALL_DIR)/mktsim"
 
+# Offline tests for the Python client (python/mktsim)
+py-test:
+	@python3 -m unittest discover -s ../python/tests
+
 cli-test: cli
 	@for f in $(CLI_DIR)/scenarios/*.txt; do \
 	  printf '%s: ' $$f; \
@@ -173,4 +177,4 @@ clear:
 	rm -rf $(LOG_DIR)
 	@echo "Cleared all logs"
 
-.PHONY: all debug clean run rebuild directories clear test bench cli cli-test install uninstall
+.PHONY: all debug clean run rebuild directories clear test bench cli cli-test install uninstall py-test
