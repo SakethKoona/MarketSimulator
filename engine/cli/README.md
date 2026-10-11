@@ -13,6 +13,8 @@ mktsim tui [feedviz args]              # open the feed TUI (clients/feedviz)
 mktsim up [config] [--flow ...] [-i|-y]   # start the exchange as a daemon (asks for the setup if no config)
 mktsim init                            # interactive config builder, no start
 mktsim down | status | logs [-f]       # stop it, inspect it, read its log
+mktsim market list|up NAME|down|status # a Python scenario as the market
+mktsim new strategy|market|flow|adapter NAME   # scaffold without questions
 make cli-test                              # runs cli/scenarios/*.txt
 ```
 
@@ -93,42 +95,42 @@ lists, Enter confirms.
 **1 · Engine**: symbols (all 100, a count, or your own list), shards, and the
 market data multicast group.
 
-**2 · Ingress**: where orders come from.
+**2 · Order flow**: where the orders come from.
 
-- *demo flow*: built-in simulated participants at a calm, normal or heavy
-  profile, plus BOE order entry so `mktsim connect` and flowgen work.
-- *your own ingress*: your code places the orders. Pick a language:
+- *a predefined flow*: pick a market to trade against. Built-in profiles
+  (calm, normal, heavy) run inside the exchange. Python scenarios (random,
+  hawkes, trending, volatile, load) are seeded agent populations from
+  `python/mktsim/sim.py` that `mktsim up` starts as a market process next to
+  the exchange; `mktsim market status|logs|down` manage it.
+- *my own simulator*: you write the order flow.
+  - *Python population* scaffolds `market.py`: a `Scenario` with a population
+    built from `mktsim.agents` plus your own `Strategy` subclasses, a
+    `Fundamental` value process, and scripted shocks. `--workers N` splits the
+    agents over processes (about 5k orders/s with 4 workers).
+  - *C++ flow model* scaffolds an in-process plugin: you write `Model::next()`
+    in `src/model.hpp`, the generated adapter paces it over N sessions. Tens
+    of thousands of orders a second (20k/s verified) with no sockets in the
+    way. The wizard builds it with cmake and wires it into the config.
+  - *existing library*: a shared library you already built against
+    `gateway/include/ingress/api.h`. (`mktsim new adapter` scaffolds a C++
+    protocol gateway for a custom wire format: TCP and sessions generated,
+    you write `src/protocol.hpp`.)
+- *both*: a predefined flow alongside your simulator.
 
-  **Python** (the default). One file to edit, no build step. The wizard asks
-  what you are building:
+**3 · Trading agents**: optionally scaffold `strategy.py`, a `Strategy`
+subclass that trades against whatever market is running. It gets the public
+view only (`self.market`: books from the feed, clock), never the simulation's
+private state, so results mean what they would on a real venue.
 
-  - *a trading strategy*: `strategy.py` with `class MyStrategy(Strategy)`.
-    Trade against the simulated market; `self.mid(sym)` and
-    `self.world.book(sym)` give you the public book from the feed.
-  - *a simulated market*: `market.py`. Your agents are the order flow:
-    `agents.population(symbols, noise=, makers=, momentum=, informed=)` builds
-    Hawkes noise traders, inventory-leaning market makers, momentum takers
-    and informed traders around a `Fundamental` value process; add your own
-    `Strategy` subclasses; script shocks with `world.shock(t, sym, delta)`;
-    `run_many(pop)` runs them all in one process, one exchange session each.
+Python projects get a copy of the client library (`python/mktsim` in this
+repo): `Exchange` (buy, sell, cancel, modify, position, pnl), `Feed`
+(multicast subscriber with snapshot bootstrap and L3 books), `Market`
+(public view) and `sim.World` (private: `Fundamental`, shocks), `Strategy`,
+`Hawkes`, `agents`, `Scenario` and `SCENARIOS`, `run` / `run_many`. Offline
+tests: `make py-test`.
 
-  Both projects get a copy of the client library (`python/mktsim` in this
-  repo): `Exchange` (buy, sell, cancel, modify, position, pnl), `Feed`
-  (multicast subscriber with snapshot bootstrap and L3 books), `World`
-  (clock, books, fundamental, scripted events), `Hawkes`, `agents`,
-  `run` / `run_many`. Offline tests: `make py-test`.
-
-  **C++ adapter**, for a custom wire protocol (FIX, your binary format):
-  a plugin project the exchange loads in-process. The TCP listening,
-  sessions, order-id bookkeeping and report routing are generated in
-  `src/adapter.cpp`; you edit `src/protocol.hpp` (`frame_end`, `decode`,
-  `encode`). Built with cmake by the wizard; until you change it, it speaks
-  a plain text protocol you can drive with `nc`.
-
-  **existing library**: point at a shared library you already built
-  against `gateway/include/ingress/api.h`.
-
-- *both*: demo flow alongside your adapter.
+Without the questions: `mktsim new strategy|market|flow|adapter NAME [DIR]`
+scaffolds a project, `mktsim market up hawkes --workers 4` runs a scenario.
 
 Then where to save the config, a summary, next steps, and whether to start.
 
